@@ -1,0 +1,1666 @@
+package com.example.game.ui
+
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
+import com.example.game.engine.ActiveFireZone
+import com.example.game.engine.GameEngine
+import com.example.game.model.*
+import kotlin.math.*
+
+object GameRenderer {
+
+    fun render(
+        drawScope: DrawScope,
+        engine: GameEngine,
+        aimTarget: Offset?
+    ) {
+        val w = drawScope.size.width
+        val h = drawScope.size.height
+
+        engine.screenWidth = w
+        engine.screenHeight = h
+
+        drawScope.withTransform({
+            translate(left = engine.shakeX, top = engine.shakeY)
+        }) {
+            // 1. Atmosphere: Sky, Moon, Swamp Trees, Fireflies
+            drawAtmosphere(w, h)
+
+            // 2. Swamp Water, Reflection, and Fog
+            val waterTop = h * 0.38f
+            drawSwampWater(w, h, waterTop)
+
+            // 3. Cabin, Porch, Barricade and Roof Sentry Turret
+            val houseWidth = engine.houseWidth
+            drawCabinAndPorch(houseWidth, h, waterTop, engine)
+
+            // 4. Hero Soldier Character (matching image: US flag helmet, gas mask with glowing green lenses)
+            drawHeroSoldier(engine, aimTarget)
+
+            // 5. Fire Zones (Molotov pools)
+            engine.fireZones.forEach { fire ->
+                drawFireZone(fire)
+            }
+
+            // 6. Zombies sorted by Y for perspective layering
+            val sortedZombies = engine.zombies.sortedBy { it.y }
+            sortedZombies.forEach { zombie ->
+                drawZombie(zombie, waterTop)
+            }
+
+            // 7. Projectiles
+            engine.projectiles.forEach { p ->
+                drawProjectile(p)
+            }
+
+            // 8. Particles (Explosions, Blood, Splashes, Muzzle Flash, Floating Text)
+            engine.particles.forEach { part ->
+                drawParticle(part)
+            }
+        }
+    }
+
+    private fun DrawScope.drawAtmosphere(w: Float, h: Float) {
+        val time = System.currentTimeMillis()
+
+        // Deep nocturnal bayou gradient with atmospheric stars
+        drawRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color(0xFF040A0D),
+                    Color(0xFF081613),
+                    Color(0xFF0E221C)
+                ),
+                startY = 0f,
+                endY = h * 0.45f
+            ),
+            size = Size(w, h * 0.45f)
+        )
+
+        // Distant twinkling stars
+        for (i in 0..14) {
+            val sx = (i * 83f + 40f) % (w * 0.95f)
+            val sy = (i * 37f + 15f) % (h * 0.32f)
+            val starAlpha = 0.4f + sin(time * 0.002f + i).absoluteValue * 0.5f
+            drawCircle(
+                color = Color.White.copy(alpha = starAlpha),
+                center = Offset(sx, sy),
+                radius = if (i % 3 == 0) 2f else 1.2f
+            )
+        }
+
+        // Full Moon with Multi-layered Outer Glow
+        val moonX = w * 0.74f
+        val moonY = h * 0.16f
+        val moonRadius = min(w, h) * 0.085f
+
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(Color(0x88FFFDE7), Color(0x22FFFDE7), Color.Transparent),
+                center = Offset(moonX, moonY),
+                radius = moonRadius * 2.8f
+            ),
+            center = Offset(moonX, moonY),
+            radius = moonRadius * 2.8f
+        )
+        drawCircle(
+            color = Color(0xFFFFF9C4),
+            center = Offset(moonX, moonY),
+            radius = moonRadius
+        )
+        // Moon Craters
+        drawCircle(
+            color = Color(0xFFFFF176),
+            center = Offset(moonX - moonRadius * 0.25f, moonY - moonRadius * 0.2f),
+            radius = moonRadius * 0.22f
+        )
+        drawCircle(
+            color = Color(0xFFFFF176),
+            center = Offset(moonX + moonRadius * 0.35f, moonY + moonRadius * 0.25f),
+            radius = moonRadius * 0.18f
+        )
+        drawCircle(
+            color = Color(0xFFFFF176),
+            center = Offset(moonX + moonRadius * 0.1f, moonY - moonRadius * 0.3f),
+            radius = moonRadius * 0.14f
+        )
+
+        // Cypress silhouette trees in background
+        drawCypressTree(w * 0.38f, h * 0.38f, 130f, 180f)
+        drawCypressTree(w * 0.54f, h * 0.38f, 110f, 150f)
+        drawCypressTree(w * 0.88f, h * 0.38f, 160f, 220f)
+
+        // Drifting fireflies with soft green halos
+        for (i in 0..8) {
+            val fx = (w * 0.32f) + (i * 95f + sin(time * 0.001f + i) * 40f) % (w * 0.65f)
+            val fy = (h * 0.25f) + (sin(time * 0.0015f + i * 2f) * 45f) + (i * 18f)
+            // Firefly glow
+            drawCircle(
+                color = Color(0x3376FF03),
+                center = Offset(fx, fy),
+                radius = 8f
+            )
+            // Firefly core
+            drawCircle(
+                color = Color(0xCCCCFF90),
+                center = Offset(fx, fy),
+                radius = 3.2f
+            )
+        }
+    }
+
+    private fun DrawScope.drawCypressTree(x: Float, baseY: Float, width: Float, height: Float) {
+        val treeColor = Color(0xFF07110E)
+        val trunkWidth = width * 0.22f
+
+        drawRect(
+            color = treeColor,
+            topLeft = Offset(x - trunkWidth / 2f, baseY - height * 0.55f),
+            size = Size(trunkWidth, height * 0.55f)
+        )
+        drawOval(
+            color = treeColor,
+            topLeft = Offset(x - width * 0.5f, baseY - height),
+            size = Size(width, height * 0.7f)
+        )
+        drawOval(
+            color = Color(0xFF0C1B16),
+            topLeft = Offset(x - width * 0.35f, baseY - height * 0.85f),
+            size = Size(width * 0.7f, height * 0.45f)
+        )
+
+        for (i in -2..2) {
+            val mossX = x + i * (width * 0.18f)
+            drawLine(
+                color = Color(0x77162C24),
+                start = Offset(mossX, baseY - height * 0.45f),
+                end = Offset(mossX, baseY - height * 0.22f),
+                strokeWidth = 3.5f
+            )
+        }
+    }
+
+    private fun DrawScope.drawSwampWater(w: Float, h: Float, waterTop: Float) {
+        val time = System.currentTimeMillis()
+
+        // Deep swamp water gradient
+        drawRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color(0xFF122820),
+                    Color(0xFF0C1D17),
+                    Color(0xFF06110D)
+                ),
+                startY = waterTop,
+                endY = h
+            ),
+            topLeft = Offset(0f, waterTop),
+            size = Size(w, h - waterTop)
+        )
+
+        // Water specular waves
+        for (i in 0..5) {
+            val waveY = waterTop + 30f + i * ((h - waterTop) / 6f)
+            val waveOffset = sin(time * 0.0012f + i).toFloat() * 18f
+            drawLine(
+                color = Color(0x2280CBC4),
+                start = Offset(w * 0.25f + waveOffset, waveY),
+                end = Offset(w * 0.95f - waveOffset, waveY),
+                strokeWidth = 2.5f
+            )
+        }
+
+        // Misty marsh fog overlay
+        drawRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color(0x334CAF50),
+                    Color(0x151B5E20),
+                    Color.Transparent
+                ),
+                startY = waterTop - 25f,
+                endY = waterTop + 75f
+            ),
+            topLeft = Offset(0f, waterTop - 25f),
+            size = Size(w, 100f)
+        )
+
+        // Water ripples & floating lily pads with water flowers
+        drawOval(
+            color = Color(0x442E7D32),
+            topLeft = Offset(w * 0.42f, h * 0.55f),
+            size = Size(76f, 22f)
+        )
+        drawCircle(color = Color(0xFFFF80AB), center = Offset(w * 0.42f + 38f, h * 0.55f + 11f), radius = 3.5f)
+
+        drawOval(
+            color = Color(0x442E7D32),
+            topLeft = Offset(w * 0.68f, h * 0.76f),
+            size = Size(96f, 26f)
+        )
+        drawCircle(color = Color(0xFFFFD54F), center = Offset(w * 0.68f + 48f, h * 0.76f + 13f), radius = 4f)
+
+        drawOval(
+            color = Color(0x442E7D32),
+            topLeft = Offset(w * 0.84f, h * 0.48f),
+            size = Size(64f, 20f)
+        )
+    }
+
+    private fun DrawScope.drawCabinAndPorch(
+        houseWidth: Float,
+        h: Float,
+        waterTop: Float,
+        engine: GameEngine
+    ) {
+        val porchY = h * 0.48f
+
+        // Stilt pilings in water with algae staining
+        val pilingColor = Color(0xFF261610)
+        drawLine(
+            color = pilingColor,
+            start = Offset(houseWidth * 0.25f, porchY),
+            end = Offset(houseWidth * 0.25f, h * 0.85f),
+            strokeWidth = 14f
+        )
+        drawLine(
+            color = pilingColor,
+            start = Offset(houseWidth * 0.65f, porchY),
+            end = Offset(houseWidth * 0.65f, h * 0.92f),
+            strokeWidth = 16f
+        )
+        drawLine(
+            color = pilingColor,
+            start = Offset(houseWidth * 0.92f, porchY),
+            end = Offset(houseWidth * 0.92f, h * 0.95f),
+            strokeWidth = 18f
+        )
+
+        // Main Cabin Wall
+        val cabinLeft = 0f
+        val cabinTop = h * 0.18f
+        val cabinRight = houseWidth * 0.75f
+        val cabinHeight = porchY - cabinTop + 20f
+
+        drawRect(
+            color = Color(0xFF4A312A),
+            topLeft = Offset(cabinLeft, cabinTop),
+            size = Size(cabinRight, cabinHeight)
+        )
+
+        // Wood grain log horizontal lines with knots
+        val logHeight = cabinHeight / 6f
+        for (i in 0..6) {
+            val lineY = cabinTop + i * logHeight
+            drawLine(
+                color = Color(0xFF24130B),
+                start = Offset(cabinLeft, lineY),
+                end = Offset(cabinRight, lineY),
+                strokeWidth = 3f
+            )
+            // Wood knot on logs
+            if (i % 2 == 0) {
+                drawCircle(
+                    color = Color(0xFF24130B),
+                    center = Offset(cabinRight * 0.6f + (i * 8f), lineY + logHeight * 0.5f),
+                    radius = 3.5f
+                )
+            }
+        }
+
+        // Cabin Window with Warm Candlelight & Lantern Glow
+        val winW = houseWidth * 0.28f
+        val winH = winW * 0.85f
+        val winX = cabinRight * 0.35f
+        val winY = cabinTop + cabinHeight * 0.25f
+
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(Color(0xAAFFA000), Color(0x33FFB300), Color.Transparent),
+                center = Offset(winX + winW / 2, winY + winH / 2),
+                radius = winW * 1.6f
+            ),
+            center = Offset(winX + winW / 2, winY + winH / 2),
+            radius = winW * 1.6f
+        )
+        drawRect(
+            color = Color(0xFF1B0F09),
+            topLeft = Offset(winX - 3f, winY - 3f),
+            size = Size(winW + 6f, winH + 6f)
+        )
+        drawRect(
+            color = Color(0xFFFFD54F),
+            topLeft = Offset(winX, winY),
+            size = Size(winW, winH)
+        )
+        drawLine(
+            color = Color(0xFF3E2723),
+            start = Offset(winX + winW / 2, winY),
+            end = Offset(winX + winW / 2, winY + winH),
+            strokeWidth = 3f
+        )
+        drawLine(
+            color = Color(0xFF3E2723),
+            start = Offset(winX, winY + winH / 2),
+            end = Offset(winX + winW, winY + winH / 2),
+            strokeWidth = 3f
+        )
+
+        // Overhanging Roof
+        val roofPath = Path().apply {
+            moveTo(0f, cabinTop - 38f)
+            lineTo(cabinRight + houseWidth * 0.16f, cabinTop + 14f)
+            lineTo(cabinRight + houseWidth * 0.12f, cabinTop + 30f)
+            lineTo(0f, cabinTop - 14f)
+            close()
+        }
+        drawPath(roofPath, color = Color(0xFF334148))
+
+        // Automated Roof Sentry Turret if unlocked
+        if (engine.defenseUpgrades.turretLevel > 0) {
+            val turretBase = engine.roofTurretOffset
+            drawRoundRect(
+                color = Color(0xFF263238),
+                topLeft = Offset(turretBase.x - 14f, turretBase.y - 8f),
+                size = Size(28f, 16f),
+                cornerRadius = CornerRadius(4f, 4f)
+            )
+            drawLine(
+                color = Color(0xFF37474F),
+                start = Offset(turretBase.x + 8f, turretBase.y - 3f),
+                end = Offset(turretBase.x + 24f, turretBase.y - 3f),
+                strokeWidth = 4f
+            )
+            drawLine(
+                color = Color(0xFF37474F),
+                start = Offset(turretBase.x + 8f, turretBase.y + 3f),
+                end = Offset(turretBase.x + 24f, turretBase.y + 3f),
+                strokeWidth = 4f
+            )
+            drawCircle(
+                color = Color(0xFFFF1744),
+                center = Offset(turretBase.x + 4f, turretBase.y),
+                radius = 3f
+            )
+        }
+
+        // Porch Deck
+        drawRect(
+            color = Color(0xFF5D4037),
+            topLeft = Offset(0f, porchY),
+            size = Size(houseWidth, 18f)
+        )
+        drawLine(
+            color = Color(0xFF24130B),
+            start = Offset(0f, porchY + 18f),
+            end = Offset(houseWidth, porchY + 18f),
+            strokeWidth = 4f
+        )
+
+        // Barricade & Sandbags
+        val barricadeX = houseWidth - 14f
+        val barricadeH = 80f
+        val barricadeTop = porchY - barricadeH + 18f
+
+        // Dynamic barricade color (shows damage if damaged)
+        val maxHp = engine.defenseUpgrades.maxHouseHp
+        val hpRatio = (engine.houseHp / maxHp).coerceIn(0f, 1f)
+        val barricadeColor = if (hpRatio < 0.35f) Color(0xFF4E342E) else Color(0xFF6D4C41)
+
+        drawRoundRect(
+            color = barricadeColor,
+            topLeft = Offset(barricadeX - 12f, barricadeTop),
+            size = Size(26f, barricadeH),
+            cornerRadius = CornerRadius(4f, 4f)
+        )
+        drawLine(
+            color = Color(0xFF3E2723),
+            start = Offset(barricadeX - 14f, barricadeTop + 24f),
+            end = Offset(barricadeX + 14f, barricadeTop + 24f),
+            strokeWidth = 8f
+        )
+        drawLine(
+            color = Color(0xFF3E2723),
+            start = Offset(barricadeX - 14f, barricadeTop + 54f),
+            end = Offset(barricadeX + 14f, barricadeTop + 54f),
+            strokeWidth = 8f
+        )
+
+        // Cracks on barricade if damaged
+        if (hpRatio < 0.65f) {
+            drawLine(
+                color = Color(0xFF1B0000),
+                start = Offset(barricadeX - 6f, barricadeTop + 30f),
+                end = Offset(barricadeX + 4f, barricadeTop + 45f),
+                strokeWidth = 2.5f
+            )
+        }
+        if (hpRatio < 0.35f) {
+            drawLine(
+                color = Color(0xFF1B0000),
+                start = Offset(barricadeX - 8f, barricadeTop + 10f),
+                end = Offset(barricadeX + 6f, barricadeTop + 22f),
+                strokeWidth = 3f
+            )
+        }
+
+        // Floating HP Bar on Canvas above Barricade for clear visibility
+        val houseBarW = 70f
+        val houseBarH = 6f
+        val houseBarX = barricadeX - houseBarW / 2f
+        val houseBarY = barricadeTop - 12f
+        drawRoundRect(
+            color = Color(0xCC000000),
+            topLeft = Offset(houseBarX, houseBarY),
+            size = Size(houseBarW, houseBarH),
+            cornerRadius = CornerRadius(2.5f, 2.5f)
+        )
+        drawRoundRect(
+            color = if (hpRatio > 0.4f) Color(0xFF4CAF50) else Color(0xFFFF5252),
+            topLeft = Offset(houseBarX, houseBarY),
+            size = Size(houseBarW * hpRatio, houseBarH),
+            cornerRadius = CornerRadius(2.5f, 2.5f)
+        )
+
+        // Sandbags
+        drawOval(
+            color = Color(0xFF8D6E63),
+            topLeft = Offset(barricadeX - 22f, porchY - 14f),
+            size = Size(36f, 18f)
+        )
+        drawOval(
+            color = Color(0xFF795548),
+            topLeft = Offset(barricadeX - 10f, porchY - 26f),
+            size = Size(34f, 16f)
+        )
+
+        // Barbed wire coils
+        val wireLevel = engine.defenseUpgrades.barbedWireLevel
+        if (wireLevel > 0) {
+            val wireColor = Color(0xFFCFD8DC)
+            for (i in 0 until (wireLevel * 2 + 1)) {
+                val coilY = barricadeTop + 10f + i * 14f
+                drawCircle(
+                    color = wireColor,
+                    center = Offset(barricadeX + 12f, coilY),
+                    radius = 8f,
+                    style = Stroke(width = 2.5f)
+                )
+            }
+        }
+    }
+
+    private fun DrawScope.drawHeroSoldier(engine: GameEngine, aimTarget: Offset?) {
+        val porchX = engine.houseWidth * 0.62f
+        val porchY = engine.screenHeight * 0.48f
+
+        val muzzle = engine.playerMuzzleOffset
+        val target = aimTarget ?: Offset(engine.screenWidth * 0.7f, porchY)
+        val aimAngle = atan2(target.y - muzzle.y, target.x - muzzle.x)
+
+        val bodyX = porchX + 4f
+        val bodyY = porchY - 48f
+
+        // Stool
+        drawRoundRect(
+            color = Color(0xFF3E2723),
+            topLeft = Offset(porchX - 16f, porchY - 32f),
+            size = Size(18f, 32f),
+            cornerRadius = CornerRadius(3f, 3f)
+        )
+
+        // Legs in combat camo pants
+        drawRoundRect(
+            color = Color(0xFF2E4E37),
+            topLeft = Offset(bodyX - 10f, bodyY + 34f),
+            size = Size(10f, 14f),
+            cornerRadius = CornerRadius(2f, 2f)
+        )
+        drawRoundRect(
+            color = Color(0xFF2E4E37),
+            topLeft = Offset(bodyX + 2f, bodyY + 34f),
+            size = Size(10f, 14f),
+            cornerRadius = CornerRadius(2f, 2f)
+        )
+
+        // Torso: Olive Drab Military Tactical Combat Vest
+        drawRoundRect(
+            color = Color(0xFF2E4E37),
+            topLeft = Offset(bodyX - 15f, bodyY),
+            size = Size(30f, 36f),
+            cornerRadius = CornerRadius(5f, 5f)
+        )
+        drawRoundRect(
+            color = Color(0xFF1E3526),
+            topLeft = Offset(bodyX - 11f, bodyY + 6f),
+            size = Size(22f, 24f),
+            cornerRadius = CornerRadius(4f, 4f)
+        )
+
+        // USA Flag Badge on Chest
+        drawRect(
+            color = Color(0xFF1A237E),
+            topLeft = Offset(bodyX - 7f, bodyY + 10f),
+            size = Size(6f, 6f)
+        )
+        drawRect(
+            color = Color(0xFFB71C1C),
+            topLeft = Offset(bodyX - 1f, bodyY + 10f),
+            size = Size(8f, 6f)
+        )
+        drawLine(
+            color = Color.White,
+            start = Offset(bodyX - 1f, bodyY + 12f),
+            end = Offset(bodyX + 7f, bodyY + 12f),
+            strokeWidth = 1.5f
+        )
+        drawLine(
+            color = Color.White,
+            start = Offset(bodyX - 1f, bodyY + 14f),
+            end = Offset(bodyX + 7f, bodyY + 14f),
+            strokeWidth = 1.5f
+        )
+
+        // Head position
+        val headX = bodyX + 2f
+        val headY = bodyY - 16f
+        val headRadius = 16f
+
+        // Gas Mask Faceplate
+        drawCircle(
+            color = Color(0xFF203B2E),
+            center = Offset(headX, headY),
+            radius = headRadius
+        )
+
+        // AMERICAN FLAG HELMET (Crucial visual feature from image!)
+        val helmetCenter = Offset(headX, headY - 4f)
+        val helmetRadius = headRadius + 3.5f
+
+        // Blue field covering front-top
+        drawArc(
+            color = Color(0xFF154360),
+            startAngle = 170f,
+            sweepAngle = 110f,
+            useCenter = true,
+            topLeft = Offset(helmetCenter.x - helmetRadius, helmetCenter.y - helmetRadius),
+            size = Size(helmetRadius * 2, helmetRadius * 2)
+        )
+        // Red and White curved stripes on right/back
+        drawArc(
+            color = Color(0xFFB71C1C),
+            startAngle = 280f,
+            sweepAngle = 90f,
+            useCenter = true,
+            topLeft = Offset(helmetCenter.x - helmetRadius, helmetCenter.y - helmetRadius),
+            size = Size(helmetRadius * 2, helmetRadius * 2)
+        )
+        drawLine(
+            color = Color.White,
+            start = Offset(headX + 5f, headY - 18f),
+            end = Offset(headX + 16f, headY - 6f),
+            strokeWidth = 3f
+        )
+        drawLine(
+            color = Color.White,
+            start = Offset(headX + 1f, headY - 19f),
+            end = Offset(headX + 12f, headY - 11f),
+            strokeWidth = 2.5f
+        )
+
+        // White stars on the blue field
+        drawCircle(color = Color.White, center = Offset(headX - 6f, headY - 14f), radius = 1.8f)
+        drawCircle(color = Color.White, center = Offset(headX - 11f, headY - 9f), radius = 1.8f)
+        drawCircle(color = Color.White, center = Offset(headX - 2f, headY - 10f), radius = 1.8f)
+        drawCircle(color = Color.White, center = Offset(headX - 7f, headY - 6f), radius = 1.6f)
+
+        // Red Brim around helmet base
+        drawArc(
+            color = Color(0xFFB71C1C),
+            startAngle = 160f,
+            sweepAngle = 150f,
+            useCenter = false,
+            topLeft = Offset(helmetCenter.x - helmetRadius - 1f, helmetCenter.y - helmetRadius + 4f),
+            size = Size(helmetRadius * 2 + 2f, helmetRadius * 2),
+            style = Stroke(width = 4f)
+        )
+
+        // NVG mount bracket
+        drawRoundRect(
+            color = Color(0xFF263238),
+            topLeft = Offset(headX - 2f, headY - 15f),
+            size = Size(7f, 7f),
+            cornerRadius = CornerRadius(1.5f, 1.5f)
+        )
+
+        // GAS MASK GOGGLES: Glowing Neon Green Circular Lenses!
+        drawCircle(color = Color(0xFF1B2A22), center = Offset(headX - 4f, headY - 1f), radius = 6.5f)
+        drawCircle(color = Color(0xFF1B2A22), center = Offset(headX + 7f, headY - 1f), radius = 6.5f)
+
+        // Glowing Neon Green Lenses with Outer Halo
+        drawCircle(color = Color(0x4476FF03), center = Offset(headX - 4f, headY - 1f), radius = 8.5f)
+        drawCircle(color = Color(0x4476FF03), center = Offset(headX + 7f, headY - 1f), radius = 8.5f)
+        drawCircle(color = Color(0xFF76FF03), center = Offset(headX - 4f, headY - 1f), radius = 5.2f)
+        drawCircle(color = Color(0xFF76FF03), center = Offset(headX + 7f, headY - 1f), radius = 5.2f)
+        drawCircle(color = Color(0xFFCCFF90), center = Offset(headX - 5f, headY - 2.5f), radius = 2.2f)
+        drawCircle(color = Color(0xFFCCFF90), center = Offset(headX + 6f, headY - 2.5f), radius = 2.2f)
+
+        // Snout Filter Grill
+        drawRoundRect(
+            color = Color(0xFF193025),
+            topLeft = Offset(headX + 2f, headY + 5f),
+            size = Size(11f, 10f),
+            cornerRadius = CornerRadius(3f, 3f)
+        )
+        drawLine(color = Color(0xFF0F1E17), start = Offset(headX + 4f, headY + 7f), end = Offset(headX + 11f, headY + 7f), strokeWidth = 1.5f)
+        drawLine(color = Color(0xFF0F1E17), start = Offset(headX + 4f, headY + 10f), end = Offset(headX + 11f, headY + 10f), strokeWidth = 1.5f)
+        drawLine(color = Color(0xFF0F1E17), start = Offset(headX + 4f, headY + 13f), end = Offset(headX + 11f, headY + 13f), strokeWidth = 1.5f)
+
+        // Side Canister
+        drawCircle(color = Color(0xFF2E4E37), center = Offset(headX + 14f, headY + 8f), radius = 5.5f)
+        drawCircle(color = Color(0xFF193025), center = Offset(headX + 14f, headY + 8f), radius = 3.5f)
+
+        // Arms and Gun anchored directly to the soldier's hands and shoulder
+        val gunAnchorX = bodyX + 8f
+        val gunAnchorY = bodyY + 14f
+        drawTacticalGun(gunAnchorX, gunAnchorY, aimAngle, engine.currentWeapon.type, engine.muzzleFlashTimer)
+    }
+
+    private fun DrawScope.drawTacticalGun(
+        anchorX: Float,
+        anchorY: Float,
+        angle: Float,
+        weaponType: WeaponType,
+        muzzleFlashTimer: Float
+    ) {
+        withTransform({
+            rotate(degrees = angle * (180f / PI.toFloat()), pivot = Offset(anchorX, anchorY))
+        }) {
+            val gunLength = when (weaponType) {
+                WeaponType.PISTOL -> 26f
+                WeaponType.CROSSBOW -> 42f
+                WeaponType.SHOTGUN -> 46f
+                WeaponType.RIFLE -> 52f
+                WeaponType.FLAMETHROWER -> 48f
+                WeaponType.LAUNCHER -> 48f
+                WeaponType.MINIGUN -> 54f
+                WeaponType.SNIPER -> 64f
+            }
+            val gunWidth = when (weaponType) {
+                WeaponType.PISTOL -> 6f
+                WeaponType.CROSSBOW -> 7f
+                WeaponType.SHOTGUN -> 9f
+                WeaponType.RIFLE -> 8f
+                WeaponType.FLAMETHROWER -> 12f
+                WeaponType.LAUNCHER -> 13f
+                WeaponType.MINIGUN -> 12f
+                WeaponType.SNIPER -> 8f
+            }
+
+            // 1. Right Arm & Shoulder Stock (Anchored to body)
+            // Tactical Camo Right Arm sleeve
+            drawRoundRect(
+                color = Color(0xFF2E4E37),
+                topLeft = Offset(anchorX - 18f, anchorY - 6f),
+                size = Size(16f, 10f),
+                cornerRadius = CornerRadius(3f, 3f)
+            )
+            // Stock braced against shoulder
+            drawRoundRect(
+                color = Color(0xFF263238),
+                topLeft = Offset(anchorX - 16f, anchorY - 4f),
+                size = Size(16f, 8f),
+                cornerRadius = CornerRadius(2f, 2f)
+            )
+            // Pistol grip
+            drawRoundRect(
+                color = Color(0xFF1B2428),
+                topLeft = Offset(anchorX + 2f, anchorY - 1f),
+                size = Size(7f, 13f),
+                cornerRadius = CornerRadius(2f, 2f)
+            )
+            // Right Gloved Hand on grip & trigger
+            drawCircle(
+                color = Color(0xFF212121),
+                center = Offset(anchorX + 5f, anchorY + 4f),
+                radius = 5.5f
+            )
+
+            // 2. Weapon Main Receiver & Barrel
+            drawRoundRect(
+                color = Color(0xFF212121),
+                topLeft = Offset(anchorX, anchorY - gunWidth / 2f),
+                size = Size(gunLength, gunWidth),
+                cornerRadius = CornerRadius(2f, 2f)
+            )
+
+            // 3. Left Arm & Hand supporting weapon foregrip / barrel
+            // Left tactical arm reaching forward
+            drawLine(
+                color = Color(0xFF2E4E37),
+                start = Offset(anchorX - 10f, anchorY + 4f),
+                end = Offset(anchorX + 18f, anchorY + 2f),
+                strokeWidth = 6f
+            )
+            // Left Gloved Hand holding barrel/handguard
+            drawCircle(
+                color = Color(0xFF212121),
+                center = Offset(anchorX + 20f, anchorY + 2f),
+                radius = 5f
+            )
+
+            // 4. Weapon Type Specific Details
+            when (weaponType) {
+                WeaponType.PISTOL -> {
+                    // Brushed metal slide top
+                    drawRect(
+                        color = Color(0xFF546E7A),
+                        topLeft = Offset(anchorX + 4f, anchorY - gunWidth / 2f - 1.5f),
+                        size = Size(gunLength - 4f, 3f)
+                    )
+                    // Tactical red dot optic
+                    drawCircle(color = Color(0xFFFF1744), center = Offset(anchorX + 7f, anchorY - gunWidth / 2f - 2f), radius = 1.5f)
+                }
+
+                WeaponType.CROSSBOW -> {
+                    // Curved bow limbs extending vertically
+                    drawLine(
+                        color = Color(0xFF455A64),
+                        start = Offset(anchorX + 28f, anchorY - 18f),
+                        end = Offset(anchorX + 34f, anchorY),
+                        strokeWidth = 3f
+                    )
+                    drawLine(
+                        color = Color(0xFF455A64),
+                        start = Offset(anchorX + 28f, anchorY + 18f),
+                        end = Offset(anchorX + 34f, anchorY),
+                        strokeWidth = 3f
+                    )
+                    // High-tension bowstring
+                    drawLine(
+                        color = Color(0xFFB0BEC5),
+                        start = Offset(anchorX + 28f, anchorY - 18f),
+                        end = Offset(anchorX + 12f, anchorY),
+                        strokeWidth = 1.5f
+                    )
+                    drawLine(
+                        color = Color(0xFFB0BEC5),
+                        start = Offset(anchorX + 28f, anchorY + 18f),
+                        end = Offset(anchorX + 12f, anchorY),
+                        strokeWidth = 1.5f
+                    )
+                    // Glowing loaded hunting bolt
+                    drawLine(
+                        color = Color(0xFF76FF03),
+                        start = Offset(anchorX + 12f, anchorY),
+                        end = Offset(anchorX + 38f, anchorY),
+                        strokeWidth = 2f
+                    )
+                }
+
+                WeaponType.SHOTGUN -> {
+                    // Under-barrel tubular magazine
+                    drawRoundRect(
+                        color = Color(0xFF37474F),
+                        topLeft = Offset(anchorX + 8f, anchorY + 1f),
+                        size = Size(gunLength - 10f, 4f),
+                        cornerRadius = CornerRadius(1.5f, 1.5f)
+                    )
+                    // Ribbed pump fore-end slide
+                    drawRoundRect(
+                        color = Color(0xFF5D4037), // wooden/rugged pump
+                        topLeft = Offset(anchorX + 16f, anchorY + 0.5f),
+                        size = Size(13f, 6f),
+                        cornerRadius = CornerRadius(2f, 2f)
+                    )
+                    // Large 12-gauge muzzle choke
+                    drawRect(
+                        color = Color(0xFF263238),
+                        topLeft = Offset(anchorX + gunLength - 2f, anchorY - gunWidth / 2f - 1f),
+                        size = Size(4f, gunWidth + 2f)
+                    )
+                }
+
+                WeaponType.RIFLE -> {
+                    // Curved military 30-round magazine
+                    drawRoundRect(
+                        color = Color(0xFF263238),
+                        topLeft = Offset(anchorX + 10f, anchorY + gunWidth / 2f),
+                        size = Size(8f, 15f),
+                        cornerRadius = CornerRadius(2f, 2f)
+                    )
+                    // Tactical carrying handle / ACOG scope
+                    drawRoundRect(
+                        color = Color(0xFF37474F),
+                        topLeft = Offset(anchorX + 8f, anchorY - gunWidth / 2f - 6f),
+                        size = Size(12f, 6f),
+                        cornerRadius = CornerRadius(1.5f, 1.5f)
+                    )
+                    drawCircle(color = Color(0xFF00E676), center = Offset(anchorX + 14f, anchorY - gunWidth / 2f - 3f), radius = 1.5f)
+                    // Birdcage flash hider
+                    drawRect(
+                        color = Color(0xFF455A64),
+                        topLeft = Offset(anchorX + gunLength, anchorY - 2.5f),
+                        size = Size(5f, 5f)
+                    )
+                }
+
+                WeaponType.FLAMETHROWER -> {
+                    // Fuel line hose
+                    drawLine(
+                        color = Color(0xFFFF8F00),
+                        start = Offset(anchorX - 6f, anchorY + 8f),
+                        end = Offset(anchorX + 14f, anchorY + 6f),
+                        strokeWidth = 3f
+                    )
+                    // Pressure gauge
+                    drawCircle(color = Color(0xFFFFD54F), center = Offset(anchorX + 12f, anchorY - gunWidth / 2f - 2f), radius = 3.5f)
+                    // Flared combustion nozzle & pilot flame
+                    drawRoundRect(
+                        color = Color(0xFF3E2723),
+                        topLeft = Offset(anchorX + gunLength - 4f, anchorY - gunWidth / 2f - 2f),
+                        size = Size(8f, gunWidth + 4f),
+                        cornerRadius = CornerRadius(2f, 2f)
+                    )
+                    // Small glowing pilot light
+                    drawCircle(color = Color(0xFFFF6F00), center = Offset(anchorX + gunLength + 3f, anchorY), radius = 2.5f)
+                }
+
+                WeaponType.LAUNCHER -> {
+                    // Heavy cylindrical tube
+                    drawRoundRect(
+                        color = Color(0xFF2E4E37),
+                        topLeft = Offset(anchorX + 2f, anchorY - gunWidth / 2f),
+                        size = Size(gunLength, gunWidth),
+                        cornerRadius = CornerRadius(3f, 3f)
+                    )
+                    // Launcher muzzle ring
+                    drawRoundRect(
+                        color = Color(0xFF1B2428),
+                        topLeft = Offset(anchorX + gunLength - 2f, anchorY - gunWidth / 2f - 1.5f),
+                        size = Size(5f, gunWidth + 3f),
+                        cornerRadius = CornerRadius(2f, 2f)
+                    )
+                    // Elevation sight
+                    drawRect(
+                        color = Color(0xFFFFD54F),
+                        topLeft = Offset(anchorX + 14f, anchorY - gunWidth / 2f - 5f),
+                        size = Size(3f, 5f)
+                    )
+                }
+
+                WeaponType.MINIGUN -> {
+                    // Rotary 6-barrel cluster
+                    for (b in -2..2) {
+                        drawLine(
+                            color = Color(0xFF37474F),
+                            start = Offset(anchorX + 12f, anchorY + b * 2.5f),
+                            end = Offset(anchorX + gunLength, anchorY + b * 2.5f),
+                            strokeWidth = 1.8f
+                        )
+                    }
+                    // Rotating clamping collar rings
+                    drawRect(color = Color(0xFF212121), topLeft = Offset(anchorX + 24f, anchorY - gunWidth / 2f), size = Size(3f, gunWidth))
+                    drawRect(color = Color(0xFF212121), topLeft = Offset(anchorX + 42f, anchorY - gunWidth / 2f), size = Size(3f, gunWidth))
+                    // Top carrying handle
+                    drawRoundRect(
+                        color = Color(0xFF263238),
+                        topLeft = Offset(anchorX + 10f, anchorY - gunWidth / 2f - 6f),
+                        size = Size(16f, 5f),
+                        cornerRadius = CornerRadius(1.5f, 1.5f)
+                    )
+                }
+
+                WeaponType.SNIPER -> {
+                    // High-magnification sniper optic scope with mount
+                    drawRoundRect(
+                        color = Color(0xFF263238),
+                        topLeft = Offset(anchorX + 10f, anchorY - gunWidth / 2f - 8f),
+                        size = Size(20f, 7f),
+                        cornerRadius = CornerRadius(2f, 2f)
+                    )
+                    drawCircle(color = Color(0xFF00E5FF), center = Offset(anchorX + 28f, anchorY - gunWidth / 2f - 4.5f), radius = 2.5f)
+                    // Fluted long heavy barrel
+                    drawLine(
+                        color = Color(0xFF37474F),
+                        start = Offset(anchorX + 22f, anchorY),
+                        end = Offset(anchorX + gunLength, anchorY),
+                        strokeWidth = 3.5f
+                    )
+                    // Heavy recoil muzzle brake
+                    drawRect(
+                        color = Color(0xFF212121),
+                        topLeft = Offset(anchorX + gunLength, anchorY - 3f),
+                        size = Size(6f, 6f)
+                    )
+                    // Folded bipod
+                    drawRect(
+                        color = Color(0xFF455A64),
+                        topLeft = Offset(anchorX + 38f, anchorY + 3f),
+                        size = Size(10f, 2.5f)
+                    )
+                }
+            }
+
+            // 5. Dynamic Muzzle Flash when firing
+            if (muzzleFlashTimer > 0f) {
+                val flashX = anchorX + gunLength + 2f
+                val flashY = anchorY
+                val flashRadius = (10f + muzzleFlashTimer * 35f).coerceAtMost(22f)
+
+                drawCircle(
+                    color = Color(0xFFFFD54F),
+                    center = Offset(flashX + 3f, flashY),
+                    radius = flashRadius
+                )
+                drawCircle(
+                    color = Color(0xFFFFF9C4),
+                    center = Offset(flashX + 1f, flashY),
+                    radius = flashRadius * 0.55f
+                )
+                // Flash sparks
+                drawLine(color = Color(0xFFFF9800), start = Offset(flashX, flashY), end = Offset(flashX + flashRadius * 1.5f, flashY - flashRadius * 0.6f), strokeWidth = 2f)
+                drawLine(color = Color(0xFFFF9800), start = Offset(flashX, flashY), end = Offset(flashX + flashRadius * 1.5f, flashY + flashRadius * 0.6f), strokeWidth = 2f)
+                drawLine(color = Color(0xFFFFEB3B), start = Offset(flashX, flashY), end = Offset(flashX + flashRadius * 1.8f, flashY), strokeWidth = 2.5f)
+            }
+        }
+    }
+
+    private fun DrawScope.drawZombie(z: Zombie, waterTop: Float) {
+        val isHit = z.hitFlashTimer > 0f
+        val animOffset = sin(z.walkAnimTimer) * 4.5f
+        val legAnim = cos(z.walkAnimTimer) * 14f
+
+        val zX = z.x
+        val zY = z.y
+
+        val w = z.type.width
+        val h = z.type.height
+
+        // Deep water shadow beneath zombie
+        drawOval(
+            color = Color(0x44000000),
+            topLeft = Offset(zX - w * 0.55f, zY - 6f),
+            size = Size(w * 1.1f, 14f)
+        )
+
+        // Specialized non-humanoid zombies
+        if (z.type == ZombieType.GATOR) {
+            drawGatorZombie(z, isHit)
+            drawZombieHpBar(z)
+            return
+        }
+
+        if (z.type == ZombieType.ZOMBIE_DOG) {
+            drawZombieDog(z, isHit)
+            drawZombieHpBar(z)
+            return
+        }
+
+        // Color palettes per zombie type
+        val skinColor = if (isHit) Color.White else when (z.type) {
+            ZombieType.WALKER -> Color(0xFF558B2F)
+            ZombieType.RUNNER -> Color(0xFF6D4C41)
+            ZombieType.SPITTER -> Color(0xFF689F38)
+            ZombieType.ARMORED -> Color(0xFF455A64)
+            ZombieType.TANK -> Color(0xFF37474F)
+            ZombieType.COLOSSUS -> Color(0xFF212121)
+            else -> Color(0xFF558B2F)
+        }
+
+        val skinShadowColor = if (isHit) Color.LightGray else when (z.type) {
+            ZombieType.WALKER -> Color(0xFF33691E)
+            ZombieType.RUNNER -> Color(0xFF4E342E)
+            ZombieType.SPITTER -> Color(0xFF33691E)
+            ZombieType.ARMORED -> Color(0xFF263238)
+            ZombieType.TANK -> Color(0xFF263238)
+            ZombieType.COLOSSUS -> Color(0xFF0D0D0D)
+            else -> Color(0xFF33691E)
+        }
+
+        val clothesColor = if (isHit) Color.White else when (z.type) {
+            ZombieType.WALKER -> Color(0xFF1976D2) // Tattered denim
+            ZombieType.RUNNER -> Color(0xFFC62828) // Shredded athletic red hoodie
+            ZombieType.SPITTER -> Color(0xFF33691E) // Swamp muck rags
+            ZombieType.ARMORED -> Color(0xFF1B2E24) // Tactical military camo
+            ZombieType.TANK -> Color(0xFF455A64) // Overalls
+            ZombieType.COLOSSUS -> Color(0xFF880E4F) // Warped demonic garments
+            else -> Color(0xFF1976D2)
+        }
+
+        // 1. Water Ripples & Wake
+        drawOval(
+            color = Color(0x6680CBC4),
+            topLeft = Offset(zX - w * 0.65f, zY - 8f),
+            size = Size(w * 1.3f, 12f),
+            style = Stroke(width = 2.2f)
+        )
+        drawOval(
+            color = Color(0x334DB6AC),
+            topLeft = Offset(zX - w * 0.8f, zY - 11f),
+            size = Size(w * 1.6f, 16f),
+            style = Stroke(width = 1.4f)
+        )
+        // Splash water droplets
+        val splashX = zX + (sin(z.walkAnimTimer * 3f) * 12f)
+        drawCircle(color = Color(0x88B2DFDB), center = Offset(splashX, zY - 3f), radius = 2.5f)
+
+        // 2. Legs & Feet
+        val hipY = zY - h * 0.36f
+        val legStroke = if (z.type == ZombieType.COLOSSUS) 18f else if (z.type == ZombieType.TANK) 14f else 7.5f
+
+        // Back leg
+        drawLine(
+            color = clothesColor,
+            start = Offset(zX + w * 0.16f, hipY),
+            end = Offset(zX + w * 0.16f + legAnim, zY),
+            strokeWidth = legStroke,
+            cap = StrokeCap.Round
+        )
+        // Back foot muddy boot
+        drawRect(
+            color = Color(0xFF1B1B1B),
+            topLeft = Offset(zX + w * 0.16f + legAnim - 6f, zY - 4f),
+            size = Size(10f, 5f)
+        )
+
+        // Front leg
+        drawLine(
+            color = clothesColor,
+            start = Offset(zX - w * 0.16f, hipY),
+            end = Offset(zX - w * 0.16f - legAnim, zY),
+            strokeWidth = legStroke,
+            cap = StrokeCap.Round
+        )
+        // Front foot muddy boot
+        drawRect(
+            color = Color(0xFF1B1B1B),
+            topLeft = Offset(zX - w * 0.16f - legAnim - 8f, zY - 4f),
+            size = Size(12f, 5f)
+        )
+
+        // 3. Torso & Upper Body
+        val torsoY = zY - h * 0.74f + animOffset
+        val torsoH = h * 0.42f
+        val torsoW = w * 0.72f
+
+        // Base torso
+        drawRoundRect(
+            color = clothesColor,
+            topLeft = Offset(zX - torsoW / 2f, torsoY),
+            size = Size(torsoW, torsoH),
+            cornerRadius = CornerRadius(5f, 5f)
+        )
+
+        // Shading on back of torso
+        drawRoundRect(
+            color = Color(0x33000000),
+            topLeft = Offset(zX + torsoW * 0.1f, torsoY),
+            size = Size(torsoW * 0.4f, torsoH),
+            cornerRadius = CornerRadius(4f, 4f)
+        )
+
+        // Exposed decayed chest/ribs or armor details
+        if (z.type == ZombieType.WALKER && !isHit) {
+            // Torn shirt revealing rotting green ribs
+            drawRect(
+                color = skinShadowColor,
+                topLeft = Offset(zX - torsoW * 0.35f, torsoY + 6f),
+                size = Size(torsoW * 0.4f, torsoH * 0.6f)
+            )
+            // Exposed bone ribs
+            drawLine(color = Color(0xFFFFF9C4), start = Offset(zX - torsoW * 0.32f, torsoY + 10f), end = Offset(zX - torsoW * 0.05f, torsoY + 10f), strokeWidth = 2f)
+            drawLine(color = Color(0xFFFFF9C4), start = Offset(zX - torsoW * 0.32f, torsoY + 16f), end = Offset(zX - torsoW * 0.08f, torsoY + 16f), strokeWidth = 2f)
+            drawLine(color = Color(0xFFFFF9C4), start = Offset(zX - torsoW * 0.30f, torsoY + 22f), end = Offset(zX - torsoW * 0.10f, torsoY + 22f), strokeWidth = 2f)
+        }
+
+        // Armored: Kevlar vest with silver steel rivets & tactical plate
+        if (z.type == ZombieType.ARMORED && !isHit) {
+            drawRoundRect(
+                color = Color(0xFF263238),
+                topLeft = Offset(zX - torsoW * 0.48f, torsoY + 2f),
+                size = Size(torsoW * 0.96f, torsoH * 0.88f),
+                cornerRadius = CornerRadius(4f, 4f)
+            )
+            // Tactical ceramic plate
+            drawRoundRect(
+                color = Color(0xFF37474F),
+                topLeft = Offset(zX - torsoW * 0.35f, torsoY + 8f),
+                size = Size(torsoW * 0.7f, torsoH * 0.55f),
+                cornerRadius = CornerRadius(3f, 3f)
+            )
+            // Silver rivets
+            drawCircle(color = Color(0xFFCFD8DC), center = Offset(zX - torsoW * 0.25f, torsoY + 10f), radius = 1.5f)
+            drawCircle(color = Color(0xFFCFD8DC), center = Offset(zX + torsoW * 0.25f, torsoY + 10f), radius = 1.5f)
+            drawCircle(color = Color(0xFFCFD8DC), center = Offset(zX - torsoW * 0.25f, torsoY + torsoH * 0.55f), radius = 1.5f)
+            drawCircle(color = Color(0xFFCFD8DC), center = Offset(zX + torsoW * 0.25f, torsoY + torsoH * 0.55f), radius = 1.5f)
+        }
+
+        // Spitter: Glowing toxic pustules
+        if (z.type == ZombieType.SPITTER && !isHit) {
+            drawCircle(color = Color(0x6676FF03), center = Offset(zX + torsoW * 0.25f, torsoY + 8f), radius = 9f)
+            drawCircle(color = Color(0xFF76FF03), center = Offset(zX + torsoW * 0.25f, torsoY + 8f), radius = 6f)
+            drawCircle(color = Color(0xFFCCFF90), center = Offset(zX + torsoW * 0.22f, torsoY + 6f), radius = 2.5f)
+
+            drawCircle(color = Color(0xFF64DD17), center = Offset(zX - 2f, torsoY + 16f), radius = 4.5f)
+            drawCircle(color = Color(0xFFCCFF90), center = Offset(zX - 3f, torsoY + 15f), radius = 1.8f)
+        }
+
+        // Tank / Colossus: Mutated bulging veins & bone spikes
+        if ((z.type == ZombieType.TANK || z.type == ZombieType.COLOSSUS) && !isHit) {
+            // Shoulder bone spikes
+            drawLine(
+                color = Color(0xFFE0E0E0),
+                start = Offset(zX + torsoW * 0.45f, torsoY + 4f),
+                end = Offset(zX + torsoW * 0.65f, torsoY - 8f),
+                strokeWidth = 4f,
+                cap = StrokeCap.Round
+            )
+            // Toxic mutant veins
+            val veinColor = if (z.type == ZombieType.COLOSSUS) Color(0xFFFF1744) else Color(0xFF76FF03)
+            drawLine(color = veinColor, start = Offset(zX - torsoW * 0.2f, torsoY + 8f), end = Offset(zX + torsoW * 0.1f, torsoY + 16f), strokeWidth = 2.2f)
+            drawLine(color = veinColor, start = Offset(zX + torsoW * 0.1f, torsoY + 16f), end = Offset(zX - torsoW * 0.1f, torsoY + 26f), strokeWidth = 1.8f)
+        }
+
+        // 4. Arms & Claws
+        val armY = torsoY + 8f
+        val armStroke = if (z.type == ZombieType.COLOSSUS) 15f else if (z.type == ZombieType.TANK) 11f else 6.5f
+
+        if (z.isAttacking) {
+            // Ferocious double-handed swiping attack animation!
+            val attackSwipe = sin(System.currentTimeMillis() * 0.012f) * 12f
+            // Front arm clawing forward
+            drawLine(
+                color = skinColor,
+                start = Offset(zX - torsoW * 0.2f, armY),
+                end = Offset(zX - torsoW * 0.6f - 24f + attackSwipe, armY + 4f),
+                strokeWidth = armStroke,
+                cap = StrokeCap.Round
+            )
+            // Claw hand
+            drawCircle(color = skinColor, center = Offset(zX - torsoW * 0.6f - 25f + attackSwipe, armY + 4f), radius = armStroke * 0.55f)
+            drawLine(color = Color(0xFF212121), start = Offset(zX - torsoW * 0.6f - 25f + attackSwipe, armY + 2f), end = Offset(zX - torsoW * 0.6f - 31f + attackSwipe, armY + 1f), strokeWidth = 2f)
+            drawLine(color = Color(0xFF212121), start = Offset(zX - torsoW * 0.6f - 25f + attackSwipe, armY + 5f), end = Offset(zX - torsoW * 0.6f - 32f + attackSwipe, armY + 5f), strokeWidth = 2f)
+
+            // Back arm clawing
+            drawLine(
+                color = skinShadowColor,
+                start = Offset(zX + torsoW * 0.1f, armY + 4f),
+                end = Offset(zX - torsoW * 0.4f - 18f - attackSwipe, armY - 4f),
+                strokeWidth = armStroke * 0.85f,
+                cap = StrokeCap.Round
+            )
+        } else {
+            // Shambling / lunging arms
+            val armBob = sin(z.walkAnimTimer * 2f) * 5f
+            val reach = if (z.type == ZombieType.RUNNER) 24f else 18f
+            // Front reaching arm
+            drawLine(
+                color = skinColor,
+                start = Offset(zX - torsoW * 0.2f, armY),
+                end = Offset(zX - torsoW * 0.5f - reach, armY + armBob),
+                strokeWidth = armStroke,
+                cap = StrokeCap.Round
+            )
+            // Claw fingertips
+            drawCircle(color = skinColor, center = Offset(zX - torsoW * 0.5f - reach, armY + armBob), radius = armStroke * 0.5f)
+            drawLine(
+                color = Color(0xFF212121),
+                start = Offset(zX - torsoW * 0.5f - reach, armY + armBob),
+                end = Offset(zX - torsoW * 0.5f - reach - 5f, armY + armBob),
+                strokeWidth = 2f
+            )
+
+            // Back trailing arm
+            drawLine(
+                color = skinShadowColor,
+                start = Offset(zX + torsoW * 0.2f, armY + 3f),
+                end = Offset(zX - torsoW * 0.2f - reach * 0.6f, armY + 6f - armBob),
+                strokeWidth = armStroke * 0.85f,
+                cap = StrokeCap.Round
+            )
+        }
+
+        // 5. Head & Grotesque Face
+        val headRadius = if (z.type == ZombieType.COLOSSUS) 22f else if (z.type == ZombieType.TANK) 17f else 12f
+        val headLean = if (z.type == ZombieType.RUNNER) 10f else 3f
+        val headX = zX - headLean
+        val headY = torsoY - headRadius + 2f
+
+        // Head base
+        drawCircle(
+            color = skinColor,
+            center = Offset(headX, headY),
+            radius = headRadius
+        )
+
+        // Head shadow contour
+        drawArc(
+            color = skinShadowColor,
+            startAngle = 270f,
+            sweepAngle = 180f,
+            useCenter = false,
+            topLeft = Offset(headX - headRadius, headY - headRadius),
+            size = Size(headRadius * 2, headRadius * 2),
+            style = Stroke(width = 2.5f)
+        )
+
+        // Helmet for Armored Zombie
+        if (z.type == ZombieType.ARMORED && !isHit) {
+            drawArc(
+                color = Color(0xFF1B2E24),
+                startAngle = 160f,
+                sweepAngle = 220f,
+                useCenter = true,
+                topLeft = Offset(headX - headRadius - 3f, headY - headRadius - 4f),
+                size = Size((headRadius + 3f) * 2, (headRadius + 3f) * 2)
+            )
+            // Visor rim & glass reflection
+            drawLine(
+                color = Color(0xFF37474F),
+                start = Offset(headX - headRadius - 2f, headY),
+                end = Offset(headX - 1f, headY + 2f),
+                strokeWidth = 3f
+            )
+            drawRect(
+                color = Color(0x664FC3F7),
+                topLeft = Offset(headX - headRadius * 0.8f, headY - 2f),
+                size = Size(headRadius * 0.65f, 4f)
+            )
+        }
+
+        // Hair strands (sparse rotten hair)
+        if (z.type != ZombieType.ARMORED && !isHit) {
+            val hairColor = Color(0xFF263238)
+            drawLine(color = hairColor, start = Offset(headX - 4f, headY - headRadius), end = Offset(headX - 9f, headY - headRadius + 4f), strokeWidth = 2f)
+            drawLine(color = hairColor, start = Offset(headX + 2f, headY - headRadius), end = Offset(headX + 5f, headY - headRadius + 6f), strokeWidth = 2.2f)
+            drawLine(color = hairColor, start = Offset(headX + 7f, headY - headRadius * 0.7f), end = Offset(headX + 11f, headY - headRadius * 0.2f), strokeWidth = 1.8f)
+        }
+
+        // Gaping rotten mouth cavity
+        val mouthX = headX - headRadius * 0.8f
+        val mouthY = headY + headRadius * 0.25f
+        val mouthW = headRadius * 0.75f
+        val mouthH = headRadius * 0.55f
+
+        drawRoundRect(
+            color = Color(0xFF1A0A0A),
+            topLeft = Offset(mouthX, mouthY),
+            size = Size(mouthW, mouthH),
+            cornerRadius = CornerRadius(2f, 2f)
+        )
+        // Sharp crooked teeth
+        drawLine(color = Color(0xFFFFF9C4), start = Offset(mouthX + 2f, mouthY), end = Offset(mouthX + 2f, mouthY + 3.5f), strokeWidth = 1.8f)
+        drawLine(color = Color(0xFFFFF9C4), start = Offset(mouthX + 6f, mouthY), end = Offset(mouthX + 6f, mouthY + 4f), strokeWidth = 1.8f)
+        drawLine(color = Color(0xFFFFF9C4), start = Offset(mouthX + 3.5f, mouthY + mouthH), end = Offset(mouthX + 3.5f, mouthY + mouthH - 3.5f), strokeWidth = 1.8f)
+
+        // Spitter acidic drool
+        if (z.type == ZombieType.SPITTER && !isHit) {
+            drawLine(
+                color = Color(0xFF76FF03),
+                start = Offset(mouthX + 2f, mouthY + mouthH),
+                end = Offset(mouthX + 1f, mouthY + mouthH + 8f + sin(z.walkAnimTimer * 4f) * 3f),
+                strokeWidth = 2.2f
+            )
+        }
+
+        // Terrifying asymmetrical Eyes!
+        val eyeColor = when (z.type) {
+            ZombieType.RUNNER -> Color(0xFFFF1744)
+            ZombieType.SPITTER -> Color(0xFF76FF03)
+            ZombieType.COLOSSUS -> Color(0xFFFF1744)
+            else -> Color(0xFFFFEB3B)
+        }
+
+        // Left eye (bulging, glowing)
+        val eyeCenterX = headX - headRadius * 0.42f
+        val eyeCenterY = headY - headRadius * 0.15f
+        drawCircle(color = Color(0x66FF1744), center = Offset(eyeCenterX, eyeCenterY), radius = 4f)
+        drawCircle(color = eyeColor, center = Offset(eyeCenterX, eyeCenterY), radius = 2.8f)
+        drawCircle(color = Color(0xFF1B0000), center = Offset(eyeCenterX - 0.7f, eyeCenterY), radius = 1.2f)
+
+        // Right eye (sunken, darkened hollow socket)
+        drawCircle(color = Color(0xFF1A1A1A), center = Offset(headX + 2f, eyeCenterY + 1f), radius = 2.2f)
+
+        drawZombieHpBar(z)
+    }
+
+    private fun DrawScope.drawGatorZombie(z: Zombie, isHit: Boolean) {
+        val color = if (isHit) Color.White else Color(0xFF2E4E37)
+        val darkScaleColor = if (isHit) Color.LightGray else Color(0xFF1B3024)
+        val eyeColor = Color(0xFFFFD600)
+        val zX = z.x
+        val zY = z.y
+
+        // Water Wake Rings
+        drawOval(
+            color = Color(0x6680CBC4),
+            topLeft = Offset(zX - 38f, zY - 10f),
+            size = Size(80f, 18f),
+            style = Stroke(width = 2.2f)
+        )
+        drawOval(
+            color = Color(0x334DB6AC),
+            topLeft = Offset(zX - 44f, zY - 13f),
+            size = Size(92f, 24f),
+            style = Stroke(width = 1.5f)
+        )
+
+        // Alligator Tail swaying
+        val tailWiggle = sin(z.walkAnimTimer * 2f) * 6f
+        val tailPath = Path().apply {
+            moveTo(zX + 16f, zY - 4f)
+            quadraticTo(zX + 30f, zY - 8f + tailWiggle, zX + 44f, zY - 4f + tailWiggle * 1.5f)
+            lineTo(zX + 16f, zY)
+            close()
+        }
+        drawPath(path = tailPath, color = color)
+
+        // Main Alligator Body
+        drawOval(
+            color = color,
+            topLeft = Offset(zX - 28f, zY - 16f),
+            size = Size(54f, 20f)
+        )
+
+        // Dorsal Scales / Spiky Ridges along back
+        for (i in 0..4) {
+            val scuteX = zX - 16f + i * 8f
+            drawRect(
+                color = darkScaleColor,
+                topLeft = Offset(scuteX, zY - 18f),
+                size = Size(4f, 4f)
+            )
+        }
+
+        // Massive Reptilian Snout & Jaws
+        val jawWiggle = if (z.isAttacking) sin(System.currentTimeMillis() * 0.015f).absoluteValue * 6f else 0f
+        // Upper Snout
+        drawRoundRect(
+            color = color,
+            topLeft = Offset(zX - 38f, zY - 14f - jawWiggle),
+            size = Size(26f, 8f),
+            cornerRadius = CornerRadius(3f, 3f)
+        )
+        // Lower Jaw
+        drawRoundRect(
+            color = darkScaleColor,
+            topLeft = Offset(zX - 36f, zY - 8f + jawWiggle),
+            size = Size(24f, 6f),
+            cornerRadius = CornerRadius(2f, 2f)
+        )
+
+        // Interlocking sharp conical teeth
+        for (i in 0..3) {
+            val toothX = zX - 34f + i * 5f
+            drawLine(color = Color(0xFFFFFDE7), start = Offset(toothX, zY - 6f - jawWiggle), end = Offset(toothX + 1f, zY - 9f), strokeWidth = 1.8f)
+            drawLine(color = Color(0xFFFFFDE7), start = Offset(toothX + 2.5f, zY - 8f + jawWiggle), end = Offset(toothX + 3.5f, zY - 5f), strokeWidth = 1.8f)
+        }
+
+        // Predatory slit eyes
+        drawCircle(color = eyeColor, center = Offset(zX - 10f, zY - 14f), radius = 3.8f)
+        drawLine(color = Color(0xFF1B0000), start = Offset(zX - 10f, zY - 17f), end = Offset(zX - 10f, zY - 11f), strokeWidth = 1.6f)
+    }
+
+    private fun DrawScope.drawZombieDog(z: Zombie, isHit: Boolean) {
+        val color = if (isHit) Color.White else Color(0xFF4E342E)
+        val shadowColor = if (isHit) Color.LightGray else Color(0xFF2E1C14)
+        val zX = z.x
+        val zY = z.y
+
+        // Water Wake
+        drawOval(
+            color = Color(0x6680CBC4),
+            topLeft = Offset(zX - 26f, zY - 8f),
+            size = Size(54f, 15f),
+            style = Stroke(width = 2f)
+        )
+
+        val pawCycle = z.walkAnimTimer * 3.5f
+        val frontLegAnim = sin(pawCycle) * 10f
+        val backLegAnim = cos(pawCycle) * 10f
+
+        // 4 Running Legs
+        drawLine(color = color, start = Offset(zX - 12f, zY - 10f), end = Offset(zX - 16f - frontLegAnim, zY), strokeWidth = 3.5f, cap = StrokeCap.Round)
+        drawLine(color = shadowColor, start = Offset(zX - 8f, zY - 10f), end = Offset(zX - 12f + frontLegAnim, zY), strokeWidth = 3f, cap = StrokeCap.Round)
+        drawLine(color = color, start = Offset(zX + 10f, zY - 10f), end = Offset(zX + 6f - backLegAnim, zY), strokeWidth = 3.5f, cap = StrokeCap.Round)
+        drawLine(color = shadowColor, start = Offset(zX + 14f, zY - 10f), end = Offset(zX + 10f + backLegAnim, zY), strokeWidth = 3f, cap = StrokeCap.Round)
+
+        // Lean, Emaciated Hound Body
+        drawOval(
+            color = color,
+            topLeft = Offset(zX - 18f, zY - 20f),
+            size = Size(36f, 16f)
+        )
+
+        // Exposed skeletal rib slits
+        if (!isHit) {
+            drawLine(color = Color(0xFFCFD8DC), start = Offset(zX - 6f, zY - 18f), end = Offset(zX - 6f, zY - 12f), strokeWidth = 1.8f)
+            drawLine(color = Color(0xFFCFD8DC), start = Offset(zX - 1f, zY - 18f), end = Offset(zX - 1f, zY - 12f), strokeWidth = 1.8f)
+            drawLine(color = Color(0xFFCFD8DC), start = Offset(zX + 4f, zY - 18f), end = Offset(zX + 4f, zY - 12f), strokeWidth = 1.8f)
+        }
+
+        // Bristled raised fur ridge on spine
+        for (i in 0..4) {
+            val spikeX = zX - 10f + i * 5f
+            drawLine(color = shadowColor, start = Offset(spikeX, zY - 20f), end = Offset(spikeX - 2f, zY - 24f), strokeWidth = 2f)
+        }
+
+        // Snarling Hound Head & Jaws
+        val headX = zX - 20f
+        val headY = zY - 16f
+        drawCircle(color = color, center = Offset(headX, headY), radius = 8.5f)
+
+        // Snout
+        drawRoundRect(
+            color = shadowColor,
+            topLeft = Offset(headX - 12f, headY - 2f),
+            size = Size(14f, 6.5f),
+            cornerRadius = CornerRadius(2f, 2f)
+        )
+        // Dripping rabid foam / fangs
+        drawLine(color = Color(0xFFFFF9C4), start = Offset(headX - 10f, headY + 4f), end = Offset(headX - 9f, headY + 7.5f), strokeWidth = 1.8f)
+        drawLine(color = Color(0xFFFFF9C4), start = Offset(headX - 6f, headY + 4f), end = Offset(headX - 5f, headY + 7f), strokeWidth = 1.8f)
+        drawCircle(color = Color(0xCCEEEEEE), center = Offset(headX - 8f, headY + 7f), radius = 1.8f)
+
+        // Piercing demonic red eye
+        drawCircle(color = Color(0xFFFF1744), center = Offset(headX - 4f, headY - 3f), radius = 3f)
+        drawCircle(color = Color(0xFF1B0000), center = Offset(headX - 5f, headY - 3f), radius = 1.2f)
+
+        // Pointy wolf ears
+        val earPath = Path().apply {
+            moveTo(headX + 2f, headY - 7f)
+            lineTo(headX + 6f, headY - 14f)
+            lineTo(headX + 8f, headY - 6f)
+            close()
+        }
+        drawPath(path = earPath, color = shadowColor)
+    }
+
+    private fun DrawScope.drawZombieHpBar(z: Zombie) {
+        if (z.currentHp < z.maxHp || z.type.isBoss || z.type == ZombieType.TANK || z.type == ZombieType.ARMORED) {
+            val barW = z.type.width * (if (z.type.isBoss) 1.5f else 1.1f)
+            val barH = if (z.type.isBoss) 8f else 5f
+            val barX = z.x - barW / 2f
+            val barY = z.y - z.type.height - 14f
+
+            drawRoundRect(
+                color = Color(0xDD000000),
+                topLeft = Offset(barX, barY),
+                size = Size(barW, barH),
+                cornerRadius = CornerRadius(2.5f, 2.5f)
+            )
+
+            val hpRatio = (z.currentHp / z.maxHp).coerceIn(0f, 1f)
+            val hpColor = when {
+                z.type.isBoss -> Color(0xFFFF1744)
+                hpRatio > 0.5f -> Color(0xFF4CAF50)
+                hpRatio > 0.25f -> Color(0xFFFFC107)
+                else -> Color(0xFFF44336)
+            }
+            drawRoundRect(
+                color = hpColor,
+                topLeft = Offset(barX, barY),
+                size = Size(barW * hpRatio, barH),
+                cornerRadius = CornerRadius(2.5f, 2.5f)
+            )
+        }
+    }
+
+    private fun DrawScope.drawFireZone(fire: ActiveFireZone) {
+        val r = fire.radius
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color(0xBBFF5722),
+                    Color(0x66FF9800),
+                    Color.Transparent
+                ),
+                center = Offset(fire.x, fire.y),
+                radius = r
+            ),
+            center = Offset(fire.x, fire.y),
+            radius = r
+        )
+
+        for (i in -3..3) {
+            val fx = fire.x + i * (r * 0.22f)
+            val timeOffset = (System.currentTimeMillis() % 100000L).toFloat() * 0.006f
+            val flameH = 20f + (sin(fx * 0.1f + timeOffset).absoluteValue * 18f)
+            drawOval(
+                color = Color(0xFFFFEB3B),
+                topLeft = Offset(fx - 6f, fire.y - flameH),
+                size = Size(12f, flameH)
+            )
+        }
+    }
+
+    private fun DrawScope.drawProjectile(p: Projectile) {
+        when (p.type) {
+            ProjectileType.BULLET -> {
+                drawLine(
+                    color = Color(0xFFFFD54F),
+                    start = Offset(p.x, p.y),
+                    end = Offset(p.x - p.vx * 0.02f, p.y - p.vy * 0.02f),
+                    strokeWidth = 3f
+                )
+                drawCircle(
+                    color = Color(0xFFFFF59D),
+                    center = Offset(p.x, p.y),
+                    radius = p.radius
+                )
+            }
+            ProjectileType.PELLET -> {
+                drawCircle(
+                    color = Color(0xFFFF9800),
+                    center = Offset(p.x, p.y),
+                    radius = p.radius
+                )
+            }
+            ProjectileType.GRENADE -> {
+                drawCircle(
+                    color = Color(0xFF37474F),
+                    center = Offset(p.x, p.y),
+                    radius = p.radius
+                )
+                drawCircle(
+                    color = Color(0xFFFF5722),
+                    center = Offset(p.x, p.y),
+                    radius = p.radius * 0.4f
+                )
+            }
+            ProjectileType.ACID_SPIT -> {
+                drawCircle(
+                    color = Color(0xFF76FF03),
+                    center = Offset(p.x, p.y),
+                    radius = p.radius
+                )
+                drawCircle(
+                    color = Color(0xFFCCFF90),
+                    center = Offset(p.x, p.y),
+                    radius = p.radius * 0.5f
+                )
+            }
+            ProjectileType.BOLT -> {
+                // Crossbow piercing bolt
+                drawLine(
+                    color = Color(0xFF8D6E63),
+                    start = Offset(p.x, p.y),
+                    end = Offset(p.x - p.vx * 0.025f, p.y - p.vy * 0.025f),
+                    strokeWidth = 3.5f
+                )
+                drawCircle(
+                    color = Color(0xFFCFD8DC),
+                    center = Offset(p.x, p.y),
+                    radius = 4f
+                )
+            }
+            ProjectileType.FLAME -> {
+                // Flamethrower fiery cloud
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0xFFFFEB3B), Color(0xFFFF5722), Color.Transparent),
+                        center = Offset(p.x, p.y),
+                        radius = p.radius * 1.5f
+                    ),
+                    center = Offset(p.x, p.y),
+                    radius = p.radius * 1.5f
+                )
+            }
+            ProjectileType.SNIPER_BULLET -> {
+                // Heavy .50 cal high-speed tracer
+                drawLine(
+                    color = Color(0xFFFFD700),
+                    start = Offset(p.x, p.y),
+                    end = Offset(p.x - p.vx * 0.035f, p.y - p.vy * 0.035f),
+                    strokeWidth = 5f
+                )
+                drawCircle(
+                    color = Color(0xFFFFFFFF),
+                    center = Offset(p.x, p.y),
+                    radius = p.radius
+                )
+            }
+        }
+    }
+
+    private fun DrawScope.drawParticle(part: Particle) {
+        val alphaColor = part.color.copy(alpha = part.alpha)
+
+        when (part.type) {
+            ParticleType.BLOOD, ParticleType.TOXIC_SLIME, ParticleType.WATER_SPLASH, ParticleType.EXPLOSION_FIRE -> {
+                drawCircle(
+                    color = alphaColor,
+                    center = Offset(part.x, part.y),
+                    radius = part.radius * part.scale
+                )
+            }
+            ParticleType.MUZZLE_FLASH -> {
+                drawCircle(
+                    color = alphaColor,
+                    center = Offset(part.x, part.y),
+                    radius = part.radius * part.scale
+                )
+            }
+            ParticleType.SMOKE, ParticleType.SHELL_CASING -> {
+                drawCircle(
+                    color = alphaColor,
+                    center = Offset(part.x, part.y),
+                    radius = part.radius
+                )
+            }
+            ParticleType.FLOATING_TEXT -> {
+                drawCircle(
+                    color = alphaColor,
+                    center = Offset(part.x, part.y),
+                    radius = 4f
+                )
+            }
+        }
+    }
+}
