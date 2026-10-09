@@ -3,7 +3,9 @@ package com.example.game.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -29,7 +31,8 @@ fun GameOverDialog(
     isNewRecord: Boolean,
     onQuickRestart: () -> Unit,
     onOpenLeaderboard: () -> Unit,
-    onExitGame: () -> Unit,
+    onExitToMenu: () -> Unit,
+    onExitApplication: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val minutes = survivedSeconds / 60
@@ -39,7 +42,7 @@ fun GameOverDialog(
     Dialog(onDismissRequest = {}) {
         Surface(
             modifier = modifier
-                .fillMaxWidth(0.92f)
+                .fillMaxWidth(0.94f)
                 .clip(RoundedCornerShape(22.dp)),
             color = Color(0xFF1A1212),
             border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFB71C1C)),
@@ -48,7 +51,8 @@ fun GameOverDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp),
+                    .padding(18.dp)
+                    .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // Header Icon
@@ -56,22 +60,22 @@ fun GameOverDialog(
                     color = Color(0xFF2C1313),
                     shape = RoundedCornerShape(16.dp),
                     border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFE53935)),
-                    modifier = Modifier.size(54.dp)
+                    modifier = Modifier.size(50.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Default.Dangerous,
                             contentDescription = "Game Over",
                             tint = Color(0xFFFF5252),
-                            modifier = Modifier.size(34.dp)
+                            modifier = Modifier.size(32.dp)
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
-                    text = "¡LA CABAÑA HA CAÍDO!",
+                    text = "¡FIN DE LA PARTIDA!",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Black,
                     color = Color(0xFFFF5252),
@@ -79,7 +83,7 @@ fun GameOverDialog(
                 )
 
                 Text(
-                    text = "Los zombis del pantano han invadido tus defensas.",
+                    text = "Los zombis del pantano han derribado tus defensas.",
                     fontSize = 12.sp,
                     color = Color(0xFFB0BEC5),
                     textAlign = TextAlign.Center
@@ -101,7 +105,7 @@ fun GameOverDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 // Stats Grid
                 Row(
@@ -124,7 +128,7 @@ fun GameOverDialog(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -140,25 +144,25 @@ fun GameOverDialog(
                     StatCard(
                         modifier = Modifier.weight(1f),
                         icon = Icons.Default.MonetizationOn,
-                        label = "MONEDAS TOTALES",
+                        label = "MONEDAS",
                         value = "$$coinsEarned",
                         iconTint = Color(0xFFFFD700)
                     )
                 }
 
-                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-                // Menu Options: Reiniciar, Marcadores, Salir del Juego
+                // Menu Options: Reiniciar, Marcadores, Salir al Menú, Salir de la Aplicación
                 Column(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     // 1. Reiniciar Run Button
                     Button(
                         onClick = onQuickRestart,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(48.dp)
+                            .height(46.dp)
                             .testTag("quick_restart_button"),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
                         shape = RoundedCornerShape(12.dp)
@@ -177,54 +181,79 @@ fun GameOverDialog(
                         )
                     }
 
-                    // 2. Marcadores & Salir Row
+                    // 2. Ver Tabla de Clasificaciones
+                    Button(
+                        onClick = onOpenLeaderboard,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .testTag("game_over_leaderboard_button"),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE65100)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Leaderboard,
+                            contentDescription = "Tabla de Clasificaciones",
+                            modifier = Modifier.size(19.dp),
+                            tint = Color(0xFFFFD54F)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "TABLA DE CLASIFICACIONES",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+
+                    // 3. Row with Salir al Menú & Salir de la Aplicación
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Ver Marcadores
+                        // Salir al Menú
                         OutlinedButton(
-                            onClick = onOpenLeaderboard,
+                            onClick = onExitToMenu,
                             modifier = Modifier
                                 .weight(1f)
-                                .height(44.dp)
-                                .testTag("game_over_leaderboard_button"),
+                                .height(42.dp)
+                                .testTag("game_over_menu_button"),
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFFD54F)),
-                            border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFFFB300))
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFCFD8DC)),
+                            border = androidx.compose.foundation.BorderStroke(1.2.dp, Color(0xFF607D8B))
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Leaderboard,
-                                contentDescription = "Marcadores",
-                                modifier = Modifier.size(17.dp)
+                                imageVector = Icons.Default.Home,
+                                contentDescription = "Menú Principal",
+                                modifier = Modifier.size(16.dp)
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "MARCADORES",
+                                text = "MENÚ",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
 
-                        // Salir del Juego
+                        // Salir de la Aplicación
                         OutlinedButton(
-                            onClick = onExitGame,
+                            onClick = onExitApplication,
                             modifier = Modifier
                                 .weight(1f)
-                                .height(44.dp)
-                                .testTag("game_over_exit_button"),
+                                .height(42.dp)
+                                .testTag("game_over_exit_app_button"),
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF8A80)),
-                            border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFE53935))
+                            border = androidx.compose.foundation.BorderStroke(1.2.dp, Color(0xFFE53935))
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ExitToApp,
-                                contentDescription = "Salir",
-                                modifier = Modifier.size(17.dp)
+                                contentDescription = "Salir de la Aplicación",
+                                modifier = Modifier.size(16.dp)
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "SALIR AL MENÚ",
+                                text = "SALIR DE APP",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )

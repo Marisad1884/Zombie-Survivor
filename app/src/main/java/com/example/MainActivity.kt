@@ -83,6 +83,9 @@ class MainActivity : ComponentActivity() {
                                 repository = repository,
                                 onExitToMenu = {
                                     currentScreen = ScreenState.MENU
+                                },
+                                onExitApplication = {
+                                    finishAffinity()
                                 }
                             )
                         }

@@ -419,39 +419,6 @@ fun GameHUD(
                     }
                 }
             }
-
-            // Tactical Molotov Button docked under weapon column
-            val molotovReady = engine.defenseUpgrades.molotovCount > 0 && engine.molotovCooldownRemaining <= 0f
-            Button(
-                onClick = { engine.throwMolotov() },
-                enabled = molotovReady,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFFFF6F00),
-                    disabledContainerColor = Color(0x66455A64)
-                ),
-                shape = RoundedCornerShape(10.dp),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("molotov_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.LocalFireDepartment,
-                    contentDescription = "Lanzar Molotov",
-                    tint = Color.White,
-                    modifier = Modifier.size(15.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = if (engine.molotovCooldownRemaining > 0f) {
-                        "%.1fs".format(engine.molotovCooldownRemaining)
-                    } else {
-                        "MOLOTOV (${engine.defenseUpgrades.molotovCount})"
-                    },
-                    fontSize = 10.5.sp,
-                    fontWeight = FontWeight.ExtraBold
-                )
-            }
         }
     }
 }

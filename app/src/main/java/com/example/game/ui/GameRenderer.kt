@@ -402,10 +402,10 @@ object GameRenderer {
             strokeWidth = 4f
         )
 
-        // Barricade & Sandbags
+        // Barricade & Sandbags (Waist-high tactical defense fortification)
         val barricadeX = houseWidth - 14f
-        val barricadeH = 80f
-        val barricadeTop = porchY - barricadeH + 18f
+        val barricadeH = 46f
+        val barricadeTop = porchY - barricadeH + 16f
 
         // Dynamic barricade color (shows damage if damaged)
         val maxHp = engine.defenseUpgrades.maxHouseHp
@@ -420,31 +420,31 @@ object GameRenderer {
         )
         drawLine(
             color = Color(0xFF3E2723),
-            start = Offset(barricadeX - 14f, barricadeTop + 24f),
-            end = Offset(barricadeX + 14f, barricadeTop + 24f),
-            strokeWidth = 8f
+            start = Offset(barricadeX - 14f, barricadeTop + 14f),
+            end = Offset(barricadeX + 14f, barricadeTop + 14f),
+            strokeWidth = 6f
         )
         drawLine(
             color = Color(0xFF3E2723),
-            start = Offset(barricadeX - 14f, barricadeTop + 54f),
-            end = Offset(barricadeX + 14f, barricadeTop + 54f),
-            strokeWidth = 8f
+            start = Offset(barricadeX - 14f, barricadeTop + 32f),
+            end = Offset(barricadeX + 14f, barricadeTop + 32f),
+            strokeWidth = 6f
         )
 
         // Cracks on barricade if damaged
         if (hpRatio < 0.65f) {
             drawLine(
                 color = Color(0xFF1B0000),
-                start = Offset(barricadeX - 6f, barricadeTop + 30f),
-                end = Offset(barricadeX + 4f, barricadeTop + 45f),
+                start = Offset(barricadeX - 6f, barricadeTop + 16f),
+                end = Offset(barricadeX + 4f, barricadeTop + 28f),
                 strokeWidth = 2.5f
             )
         }
         if (hpRatio < 0.35f) {
             drawLine(
                 color = Color(0xFF1B0000),
-                start = Offset(barricadeX - 8f, barricadeTop + 10f),
-                end = Offset(barricadeX + 6f, barricadeTop + 22f),
+                start = Offset(barricadeX - 8f, barricadeTop + 6f),
+                end = Offset(barricadeX + 6f, barricadeTop + 18f),
                 strokeWidth = 3f
             )
         }
@@ -496,68 +496,73 @@ object GameRenderer {
     }
 
     private fun DrawScope.drawHeroSoldier(engine: GameEngine, aimTarget: Offset?) {
-        val porchX = engine.houseWidth * 0.62f
         val porchY = engine.screenHeight * 0.48f
 
-        val muzzle = engine.playerMuzzleOffset
-        val target = aimTarget ?: Offset(engine.screenWidth * 0.7f, porchY)
-        val aimAngle = atan2(target.y - muzzle.y, target.x - muzzle.x)
+        // Soldier positioned right at the defense post behind waist-high barricade
+        val bodyX = engine.houseWidth - 42f
+        val bodyY = porchY - 54f
 
-        val bodyX = porchX + 4f
-        val bodyY = porchY - 48f
+        val gunAnchorX = bodyX + 16f
+        val gunAnchorY = bodyY + 16f
 
-        // Stool
+        val target = aimTarget ?: Offset(engine.screenWidth * 0.75f, porchY - 20f)
+        val rawAngle = atan2(target.y - gunAnchorY, target.x - gunAnchorX)
+        // Clamp strictly between -37° and +37° towards the swamp so character never aims backwards
+        val aimAngle = rawAngle.coerceIn(-0.65f, 0.65f)
+
+        // Stool/defense bench
         drawRoundRect(
             color = Color(0xFF3E2723),
-            topLeft = Offset(porchX - 16f, porchY - 32f),
-            size = Size(18f, 32f),
+            topLeft = Offset(bodyX - 22f, porchY - 26f),
+            size = Size(20f, 26f),
             cornerRadius = CornerRadius(3f, 3f)
         )
 
         // Legs in combat camo pants
         drawRoundRect(
             color = Color(0xFF2E4E37),
-            topLeft = Offset(bodyX - 10f, bodyY + 34f),
-            size = Size(10f, 14f),
+            topLeft = Offset(bodyX - 12f, bodyY + 32f),
+            size = Size(22f, 22f),
+            cornerRadius = CornerRadius(3f, 3f)
+        )
+        // Combat Boots firmly planted on porch deck
+        drawRoundRect(
+            color = Color(0xFF1B2428),
+            topLeft = Offset(bodyX - 13f, porchY - 8f),
+            size = Size(12f, 8f),
             cornerRadius = CornerRadius(2f, 2f)
         )
         drawRoundRect(
-            color = Color(0xFF2E4E37),
-            topLeft = Offset(bodyX + 2f, bodyY + 34f),
-            size = Size(10f, 14f),
+            color = Color(0xFF1B2428),
+            topLeft = Offset(bodyX - 1f, porchY - 8f),
+            size = Size(12f, 8f),
             cornerRadius = CornerRadius(2f, 2f)
         )
 
         // Torso: Olive Drab Military Tactical Combat Vest
         drawRoundRect(
             color = Color(0xFF2E4E37),
-            topLeft = Offset(bodyX - 15f, bodyY),
-            size = Size(30f, 36f),
+            topLeft = Offset(bodyX - 14f, bodyY + 4f),
+            size = Size(28f, 30f),
             cornerRadius = CornerRadius(5f, 5f)
         )
         drawRoundRect(
             color = Color(0xFF1E3526),
-            topLeft = Offset(bodyX - 11f, bodyY + 6f),
-            size = Size(22f, 24f),
+            topLeft = Offset(bodyX - 10f, bodyY + 8f),
+            size = Size(20f, 22f),
             cornerRadius = CornerRadius(4f, 4f)
         )
 
         // USA Flag Badge on Chest
         drawRect(
             color = Color(0xFF1A237E),
-            topLeft = Offset(bodyX - 7f, bodyY + 10f),
+            topLeft = Offset(bodyX - 7f, bodyY + 12f),
             size = Size(6f, 6f)
         )
         drawRect(
             color = Color(0xFFB71C1C),
-            topLeft = Offset(bodyX - 1f, bodyY + 10f),
+            topLeft = Offset(bodyX - 1f, bodyY + 12f),
             size = Size(8f, 6f)
-        )
-        drawLine(
-            color = Color.White,
-            start = Offset(bodyX - 1f, bodyY + 12f),
-            end = Offset(bodyX + 7f, bodyY + 12f),
-            strokeWidth = 1.5f
         )
         drawLine(
             color = Color.White,
@@ -565,11 +570,17 @@ object GameRenderer {
             end = Offset(bodyX + 7f, bodyY + 14f),
             strokeWidth = 1.5f
         )
+        drawLine(
+            color = Color.White,
+            start = Offset(bodyX - 1f, bodyY + 16f),
+            end = Offset(bodyX + 7f, bodyY + 16f),
+            strokeWidth = 1.5f
+        )
 
         // Head position
-        val headX = bodyX + 2f
-        val headY = bodyY - 16f
-        val headRadius = 16f
+        val headX = bodyX
+        val headY = bodyY - 12f
+        val headRadius = 15f
 
         // Gas Mask Faceplate
         drawCircle(
@@ -578,7 +589,7 @@ object GameRenderer {
             radius = headRadius
         )
 
-        // AMERICAN FLAG HELMET (Crucial visual feature from image!)
+        // AMERICAN FLAG HELMET
         val helmetCenter = Offset(headX, headY - 4f)
         val helmetRadius = headRadius + 3.5f
 
@@ -666,8 +677,6 @@ object GameRenderer {
         drawCircle(color = Color(0xFF193025), center = Offset(headX + 14f, headY + 8f), radius = 3.5f)
 
         // Arms and Gun anchored directly to the soldier's hands and shoulder
-        val gunAnchorX = bodyX + 8f
-        val gunAnchorY = bodyY + 14f
         drawTacticalGun(gunAnchorX, gunAnchorY, aimAngle, engine.currentWeapon.type, engine.muzzleFlashTimer)
     }
 
@@ -682,7 +691,7 @@ object GameRenderer {
             rotate(degrees = angle * (180f / PI.toFloat()), pivot = Offset(anchorX, anchorY))
         }) {
             val gunLength = when (weaponType) {
-                WeaponType.PISTOL -> 26f
+                WeaponType.PISTOL -> 28f
                 WeaponType.CROSSBOW -> 42f
                 WeaponType.SHOTGUN -> 46f
                 WeaponType.RIFLE -> 52f
@@ -706,8 +715,8 @@ object GameRenderer {
             // Tactical Camo Right Arm sleeve
             drawRoundRect(
                 color = Color(0xFF2E4E37),
-                topLeft = Offset(anchorX - 18f, anchorY - 6f),
-                size = Size(16f, 10f),
+                topLeft = Offset(anchorX - 14f, anchorY - 6f),
+                size = Size(14f, 10f),
                 cornerRadius = CornerRadius(3f, 3f)
             )
             // Stock braced against shoulder
@@ -720,21 +729,21 @@ object GameRenderer {
             // Pistol grip
             drawRoundRect(
                 color = Color(0xFF1B2428),
-                topLeft = Offset(anchorX + 2f, anchorY - 1f),
+                topLeft = Offset(anchorX, anchorY - 1f),
                 size = Size(7f, 13f),
                 cornerRadius = CornerRadius(2f, 2f)
             )
             // Right Gloved Hand on grip & trigger
             drawCircle(
                 color = Color(0xFF212121),
-                center = Offset(anchorX + 5f, anchorY + 4f),
-                radius = 5.5f
+                center = Offset(anchorX + 3f, anchorY + 4f),
+                radius = 5f
             )
 
             // 2. Weapon Main Receiver & Barrel
             drawRoundRect(
                 color = Color(0xFF212121),
-                topLeft = Offset(anchorX, anchorY - gunWidth / 2f),
+                topLeft = Offset(anchorX - 2f, anchorY - gunWidth / 2f),
                 size = Size(gunLength, gunWidth),
                 cornerRadius = CornerRadius(2f, 2f)
             )
@@ -743,15 +752,15 @@ object GameRenderer {
             // Left tactical arm reaching forward
             drawLine(
                 color = Color(0xFF2E4E37),
-                start = Offset(anchorX - 10f, anchorY + 4f),
-                end = Offset(anchorX + 18f, anchorY + 2f),
+                start = Offset(anchorX - 10f, anchorY + 5f),
+                end = Offset(anchorX + 16f, anchorY + 3f),
                 strokeWidth = 6f
             )
             // Left Gloved Hand holding barrel/handguard
             drawCircle(
                 color = Color(0xFF212121),
-                center = Offset(anchorX + 20f, anchorY + 2f),
-                radius = 5f
+                center = Offset(anchorX + 16f, anchorY + 3f),
+                radius = 4.5f
             )
 
             // 4. Weapon Type Specific Details

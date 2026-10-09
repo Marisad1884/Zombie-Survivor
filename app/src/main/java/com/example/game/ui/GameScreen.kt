@@ -23,6 +23,7 @@ fun GameScreen(
     engine: GameEngine,
     repository: LeaderboardRepository,
     onExitToMenu: () -> Unit = {},
+    onExitApplication: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var frameTick by remember { mutableLongStateOf(0L) }
@@ -61,9 +62,11 @@ fun GameScreen(
             .pointerInput(Unit) {
                 detectTapGestures(
                     onPress = { offset ->
-                        isTouching = true
-                        aimTarget = offset
-                        engine.onTouchShoot(offset.x, offset.y)
+                        if (offset.x >= engine.houseWidth * 0.82f) {
+                            isTouching = true
+                            aimTarget = offset
+                            engine.onTouchShoot(offset.x, offset.y)
+                        }
                         tryAwaitRelease()
                         isTouching = false
                     }
@@ -72,9 +75,11 @@ fun GameScreen(
             .pointerInput(Unit) {
                 detectDragGestures(
                     onDragStart = { offset ->
-                        isTouching = true
-                        aimTarget = offset
-                        engine.onTouchShoot(offset.x, offset.y)
+                        if (offset.x >= engine.houseWidth * 0.82f) {
+                            isTouching = true
+                            aimTarget = offset
+                            engine.onTouchShoot(offset.x, offset.y)
+                        }
                     },
                     onDragEnd = {
                         isTouching = false
@@ -83,8 +88,10 @@ fun GameScreen(
                         isTouching = false
                     },
                     onDrag = { change, _ ->
-                        aimTarget = change.position
-                        engine.onTouchShoot(change.position.x, change.position.y)
+                        if (change.position.x >= engine.houseWidth * 0.82f) {
+                            aimTarget = change.position
+                            engine.onTouchShoot(change.position.x, change.position.y)
+                        }
                     }
                 )
             }
@@ -192,8 +199,11 @@ fun GameScreen(
                 onOpenLeaderboard = {
                     showLeaderboardDialog = true
                 },
-                onExitGame = {
+                onExitToMenu = {
                     onExitToMenu()
+                },
+                onExitApplication = {
+                    onExitApplication()
                 }
             )
         }

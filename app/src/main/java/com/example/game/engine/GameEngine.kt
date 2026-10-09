@@ -126,12 +126,12 @@ class GameEngine(
 
     val playerMuzzleOffset: Offset
         get() {
-            val porchX = houseWidth * 0.62f
-            val bodyX = porchX + 4f
-            val bodyY = screenHeight * 0.48f - 48f
-            val gunPivotX = bodyX + 8f
-            val gunPivotY = bodyY + 14f
-            return Offset(gunPivotX + 44f, gunPivotY)
+            val porchY = screenHeight * 0.48f
+            val bodyX = houseWidth - 42f
+            val bodyY = porchY - 54f
+            val gunAnchorX = bodyX + 16f
+            val gunAnchorY = bodyY + 16f
+            return Offset(gunAnchorX + 38f, gunAnchorY)
         }
 
     val roofTurretOffset: Offset
@@ -248,9 +248,9 @@ class GameEngine(
         weapon.currentAmmo--
 
         val origin = playerMuzzleOffset
-        val dx = touchX - origin.x
+        val dx = (touchX - origin.x).coerceAtLeast(10f)
         val dy = touchY - origin.y
-        val baseAngle = atan2(dy, dx)
+        val baseAngle = atan2(dy, dx).coerceIn(-0.65f, 0.65f)
 
         soundManager.playShotSound(weapon.type)
         muzzleFlashTimer = 0.08f

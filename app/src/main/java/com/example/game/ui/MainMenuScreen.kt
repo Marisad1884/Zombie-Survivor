@@ -245,7 +245,7 @@ fun MainMenuScreen(
                             color = Color.White
                         )
                         Text(
-                            text = "• Mejoras de Nivel 10: Sube de nivel tus armas hasta nivel 10, repara la barricada, instala torretas centinela automáticas en el techo y lanza cócteles Molotov.",
+                            text = "• Mejoras de Nivel 10: Sube de nivel tus armas hasta nivel 10, repara la barricada e instala torretas centinela automáticas en el techo.",
                             fontSize = 12.sp,
                             color = Color.White
                         )

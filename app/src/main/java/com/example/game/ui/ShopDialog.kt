@@ -199,22 +199,6 @@ fun ShopDialog(
                         )
                     }
 
-                    // Buy Molotov
-                    item {
-                        val count = engine.defenseUpgrades.molotovCount
-                        val isMax = count >= 5
-                        ShopItemCard(
-                            icon = Icons.Default.LocalFireDepartment,
-                            title = "Cóctel Molotov Táctico ($count/5)",
-                            subtitle = "Fuego que quema el pantano durante 5 segundos",
-                            cost = engine.defenseUpgrades.molotovBuyCost,
-                            canAfford = engine.coins >= engine.defenseUpgrades.molotovBuyCost && !isMax,
-                            isMaxed = isMax,
-                            buttonText = if (isMax) "LLENO" else "COMPRAR",
-                            onBuy = { engine.buyMolotov() }
-                        )
-                    }
-
                     item {
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
