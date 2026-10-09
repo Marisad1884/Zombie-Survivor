@@ -124,18 +124,26 @@ class GameEngine(
     val barricadeX: Float
         get() = houseWidth
 
+    val housePorchY: Float
+        get() = screenHeight * 0.62f
+
     val playerMuzzleOffset: Offset
         get() {
-            val porchY = screenHeight * 0.48f
             val bodyX = houseWidth - 42f
-            val bodyY = porchY - 54f
+            val bodyY = housePorchY - 54f
             val gunAnchorX = bodyX + 16f
             val gunAnchorY = bodyY + 16f
             return Offset(gunAnchorX + 38f, gunAnchorY)
         }
 
     val roofTurretOffset: Offset
-        get() = Offset(houseWidth * 0.45f, screenHeight * 0.20f)
+        get() = Offset(houseWidth * 0.45f, screenHeight * 0.27f)
+
+    fun playerAimAngle(targetX: Float, targetY: Float): Float {
+        val origin = playerMuzzleOffset
+        val dx = (targetX - origin.x).coerceAtLeast(10f)
+        return atan2(targetY - origin.y, dx).coerceIn(-0.65f, 1.15f)
+    }
 
     init {
         startNewRun()
@@ -248,9 +256,7 @@ class GameEngine(
         weapon.currentAmmo--
 
         val origin = playerMuzzleOffset
-        val dx = (touchX - origin.x).coerceAtLeast(10f)
-        val dy = touchY - origin.y
-        val baseAngle = atan2(dy, dx).coerceIn(-0.65f, 0.65f)
+        val baseAngle = playerAimAngle(touchX, touchY)
 
         soundManager.playShotSound(weapon.type)
         muzzleFlashTimer = 0.08f
@@ -735,7 +741,7 @@ class GameEngine(
             }
 
             // Movement & Barricade Collision
-            val targetBarricade = barricadeX + 12f
+            val targetBarricade = barricadeX - z.hitboxLeft + z.x
             if (z.x > targetBarricade) {
                 val slowFactor = if (z.slowTimer > 0f) 0.5f else 1.0f
                 z.x -= z.type.speed * slowFactor * dt
@@ -775,6 +781,8 @@ class GameEngine(
                 continue
             }
 
+            val previousX = p.x
+            val previousY = p.y
             p.x += p.vx * dt
             p.y += p.vy * dt
 
@@ -794,12 +802,14 @@ class GameEngine(
             } else {
                 var hitZombie: Zombie? = null
                 for (z in zombies) {
-                    val zLeft = z.x - z.type.width * 0.55f
-                    val zRight = z.x + z.type.width * 0.55f
-                    val zTop = z.y - z.type.height * 0.95f
-                    val zBottom = z.y + 12f
-
-                    if (p.x in zLeft..zRight && p.y in zTop..zBottom) {
+                    if (z.intersectsProjectileSegment(
+                            previousX,
+                            previousY,
+                            p.x,
+                            p.y,
+                            p.radius
+                        )
+                    ) {
                         hitZombie = z
                         break
                     }

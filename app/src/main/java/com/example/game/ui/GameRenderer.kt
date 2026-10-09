@@ -258,7 +258,7 @@ object GameRenderer {
         waterTop: Float,
         engine: GameEngine
     ) {
-        val porchY = h * 0.48f
+        val porchY = engine.housePorchY
 
         // Stilt pilings in water with algae staining
         val pilingColor = Color(0xFF261610)
@@ -283,7 +283,7 @@ object GameRenderer {
 
         // Main Cabin Wall
         val cabinLeft = 0f
-        val cabinTop = h * 0.18f
+        val cabinTop = h * 0.32f
         val cabinRight = houseWidth * 0.75f
         val cabinHeight = porchY - cabinTop + 20f
 
@@ -351,15 +351,61 @@ object GameRenderer {
             strokeWidth = 3f
         )
 
-        // Overhanging Roof
+        // Chimney and pitched roof
+        drawRect(
+            color = Color(0xFF3E2723),
+            topLeft = Offset(cabinRight * 0.58f, cabinTop - 68f),
+            size = Size(18f, 48f)
+        )
+        drawLine(
+            color = Color(0xFF795548),
+            start = Offset(cabinRight * 0.58f, cabinTop - 68f),
+            end = Offset(cabinRight * 0.58f + 18f, cabinTop - 68f),
+            strokeWidth = 5f
+        )
         val roofPath = Path().apply {
-            moveTo(0f, cabinTop - 38f)
-            lineTo(cabinRight + houseWidth * 0.16f, cabinTop + 14f)
-            lineTo(cabinRight + houseWidth * 0.12f, cabinTop + 30f)
-            lineTo(0f, cabinTop - 14f)
+            moveTo(-12f, cabinTop + 20f)
+            lineTo(cabinRight * 0.46f, cabinTop - 48f)
+            lineTo(cabinRight + houseWidth * 0.16f, cabinTop + 10f)
+            lineTo(cabinRight + houseWidth * 0.12f, cabinTop + 28f)
+            lineTo(-12f, cabinTop + 38f)
             close()
         }
-        drawPath(roofPath, color = Color(0xFF334148))
+        drawPath(roofPath, color = Color(0xFF3E2723))
+        drawLine(
+            color = Color(0xFF795548),
+            start = Offset(cabinRight * 0.46f, cabinTop - 48f),
+            end = Offset(-12f, cabinTop + 20f),
+            strokeWidth = 5f
+        )
+        drawLine(
+            color = Color(0xFF795548),
+            start = Offset(cabinRight * 0.46f, cabinTop - 48f),
+            end = Offset(cabinRight + houseWidth * 0.16f, cabinTop + 10f),
+            strokeWidth = 5f
+        )
+
+        val doorWidth = houseWidth * 0.19f
+        val doorHeight = porchY - (cabinTop + cabinHeight * 0.52f)
+        val doorX = cabinRight * 0.08f
+        val doorY = porchY - doorHeight
+        drawRoundRect(
+            color = Color(0xFF291810),
+            topLeft = Offset(doorX, doorY),
+            size = Size(doorWidth, doorHeight),
+            cornerRadius = CornerRadius(5f, 5f)
+        )
+        drawLine(
+            color = Color(0xFF795548),
+            start = Offset(doorX + 5f, doorY + 5f),
+            end = Offset(doorX + doorWidth - 5f, doorY + 5f),
+            strokeWidth = 3f
+        )
+        drawCircle(
+            color = Color(0xFFFFD54F),
+            center = Offset(doorX + doorWidth * 0.82f, doorY + doorHeight * 0.58f),
+            radius = 2.5f
+        )
 
         // Automated Roof Sentry Turret if unlocked
         if (engine.defenseUpgrades.turretLevel > 0) {
@@ -496,7 +542,7 @@ object GameRenderer {
     }
 
     private fun DrawScope.drawHeroSoldier(engine: GameEngine, aimTarget: Offset?) {
-        val porchY = engine.screenHeight * 0.48f
+        val porchY = engine.housePorchY
 
         // Soldier positioned right at the defense post behind waist-high barricade
         val bodyX = engine.houseWidth - 42f
@@ -506,9 +552,7 @@ object GameRenderer {
         val gunAnchorY = bodyY + 16f
 
         val target = aimTarget ?: Offset(engine.screenWidth * 0.75f, porchY - 20f)
-        val rawAngle = atan2(target.y - gunAnchorY, target.x - gunAnchorX)
-        // Clamp strictly between -37° and +37° towards the swamp so character never aims backwards
-        val aimAngle = rawAngle.coerceIn(-0.65f, 0.65f)
+        val aimAngle = engine.playerAimAngle(target.x, target.y)
 
         // Stool/defense bench
         drawRoundRect(

@@ -112,4 +112,64 @@ data class Zombie(
 ) {
     val isDead: Boolean
         get() = currentHp <= 0
+
+    private val hitboxHalfWidth: Float
+        get() = when (type) {
+            ZombieType.ZOMBIE_DOG -> 32f
+            ZombieType.GATOR -> 41f
+            else -> type.width * 0.42f
+        }
+
+    private val hitboxHalfHeight: Float
+        get() = when (type) {
+            ZombieType.ZOMBIE_DOG -> 14f
+            ZombieType.GATOR -> 11f
+            else -> type.height * 0.54f
+        }
+
+    private val hitboxCenterOffsetX: Float
+        get() = when (type) {
+            ZombieType.ZOMBIE_DOG -> -10f
+            ZombieType.GATOR -> 3f
+            else -> 0f
+        }
+
+    private val hitboxCenterOffsetY: Float
+        get() = when (type) {
+            ZombieType.ZOMBIE_DOG -> -12f
+            ZombieType.GATOR -> -9f
+            else -> -type.height * 0.48f
+        }
+
+    val hitboxLeft: Float
+        get() = x + hitboxCenterOffsetX - hitboxHalfWidth
+
+    fun intersectsProjectileSegment(
+        startX: Float,
+        startY: Float,
+        endX: Float,
+        endY: Float,
+        projectileRadius: Float
+    ): Boolean {
+        val centerX = x + hitboxCenterOffsetX
+        val centerY = y + hitboxCenterOffsetY
+        val radius = projectileRadius.coerceAtLeast(0f)
+        val normalizedStartX = (startX - centerX) / (hitboxHalfWidth + radius)
+        val normalizedStartY = (startY - centerY) / (hitboxHalfHeight + radius)
+        val normalizedEndX = (endX - centerX) / (hitboxHalfWidth + radius)
+        val normalizedEndY = (endY - centerY) / (hitboxHalfHeight + radius)
+        val dx = normalizedEndX - normalizedStartX
+        val dy = normalizedEndY - normalizedStartY
+        val segmentLengthSquared = dx * dx + dy * dy
+        val closestPointT = if (segmentLengthSquared == 0f) {
+            0f
+        } else {
+            ((-normalizedStartX * dx - normalizedStartY * dy) / segmentLengthSquared)
+                .coerceIn(0f, 1f)
+        }
+        val closestX = normalizedStartX + dx * closestPointT
+        val closestY = normalizedStartY + dy * closestPointT
+
+        return closestX * closestX + closestY * closestY <= 1f
+    }
 }
