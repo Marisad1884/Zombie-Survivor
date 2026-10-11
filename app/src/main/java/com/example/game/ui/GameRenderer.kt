@@ -80,66 +80,100 @@ object GameRenderer {
         waterTop: Float,
         engine: GameEngine
     ) {
-        val porchY = h * 0.48f
+        val porchY = h * 0.58f
 
-        // Stilt pilings in water with algae staining
+        // 1. Heavy Weathered Stilt Pilings standing deep in swamp water
         val pilingColor = Color(0xFF261610)
-        drawLine(
-            color = pilingColor,
-            start = Offset(houseWidth * 0.25f, porchY),
-            end = Offset(houseWidth * 0.25f, h * 0.85f),
-            strokeWidth = 14f
-        )
-        drawLine(
-            color = pilingColor,
-            start = Offset(houseWidth * 0.65f, porchY),
-            end = Offset(houseWidth * 0.65f, h * 0.92f),
-            strokeWidth = 16f
-        )
-        drawLine(
-            color = pilingColor,
-            start = Offset(houseWidth * 0.92f, porchY),
-            end = Offset(houseWidth * 0.92f, h * 0.95f),
-            strokeWidth = 18f
-        )
+        val algaeColor = Color(0x882E7D32)
+        val pilings = listOf(houseWidth * 0.22f, houseWidth * 0.58f, houseWidth * 0.90f)
+        pilings.forEachIndexed { idx, px ->
+            val pWidth = 14f + idx * 2f
+            drawLine(
+                color = pilingColor,
+                start = Offset(px, porchY + 14f),
+                end = Offset(px, h * 0.98f),
+                strokeWidth = pWidth
+            )
+            // Green swamp algae moss staining around waterline
+            drawLine(
+                color = algaeColor,
+                start = Offset(px, porchY + 18f),
+                end = Offset(px, porchY + 70f),
+                strokeWidth = pWidth + 2f
+            )
+            // Water ripples around stilt base
+            drawOval(
+                color = Color(0x3380CBC4),
+                topLeft = Offset(px - 14f, porchY + 30f),
+                size = Size(28f, 8f),
+                style = Stroke(width = 1.5f)
+            )
+        }
 
-        // Main Cabin Wall
+        // 2. Main Rustic Log Cabin Wall ("Cabaña de Troncos")
         val cabinLeft = 0f
-        val cabinTop = h * 0.18f
-        val cabinRight = houseWidth * 0.75f
-        val cabinHeight = porchY - cabinTop + 20f
+        val cabinTop = h * 0.26f
+        val cabinRight = houseWidth * 0.72f
+        val cabinHeight = porchY - cabinTop
 
+        // Dark background behind cabin
         drawRect(
-            color = Color(0xFF4A312A),
+            color = Color(0xFF2A1810),
             topLeft = Offset(cabinLeft, cabinTop),
             size = Size(cabinRight, cabinHeight)
         )
 
-        // Wood grain log horizontal lines with knots
-        val logHeight = cabinHeight / 6f
-        for (i in 0..6) {
-            val lineY = cabinTop + i * logHeight
+        // Stacked Horizontal Rounded Wood Logs
+        val numLogs = 8
+        val logHeight = cabinHeight / numLogs
+        for (i in 0 until numLogs) {
+            val logY = cabinTop + i * logHeight
+            // Base rounded log body
+            drawRoundRect(
+                color = if (i % 2 == 0) Color(0xFF5D4037) else Color(0xFF4E342E),
+                topLeft = Offset(cabinLeft, logY + 1f),
+                size = Size(cabinRight, logHeight - 1.5f),
+                cornerRadius = CornerRadius(4f, 4f)
+            )
+            // Log 3D upper highlight reflection (gives cylindrical log appearance)
+            drawRect(
+                color = Color(0xFF6D4C41),
+                topLeft = Offset(cabinLeft, logY + 2f),
+                size = Size(cabinRight, logHeight * 0.35f)
+            )
+            // Dark chinking/mortar line between logs
             drawLine(
-                color = Color(0xFF24130B),
-                start = Offset(cabinLeft, lineY),
-                end = Offset(cabinRight, lineY),
-                strokeWidth = 3f
+                color = Color(0xFF1B0F09),
+                start = Offset(cabinLeft, logY + logHeight),
+                end = Offset(cabinRight, logY + logHeight),
+                strokeWidth = 2.5f
             )
             // Wood knot on logs
-            if (i % 2 == 0) {
+            if (i % 3 == 1) {
                 drawCircle(
                     color = Color(0xFF24130B),
-                    center = Offset(cabinRight * 0.6f + (i * 8f), lineY + logHeight * 0.5f),
-                    radius = 3.5f
+                    center = Offset(cabinRight * 0.35f + (i * 12f), logY + logHeight * 0.5f),
+                    radius = 3.2f
                 )
             }
-        }
 
-        // Cabin Window with Warm Candlelight & Lantern Glow
-        val winW = houseWidth * 0.28f
-        val winH = winW * 0.85f
-        val winX = cabinRight * 0.35f
-        val winY = cabinTop + cabinHeight * 0.25f
+            // Authentic Notched Log Ends protruding at the cabin corner joint
+            drawOval(
+                color = Color(0xFF5D4037),
+                topLeft = Offset(cabinRight - 4f, logY + 1f),
+                size = Size(16f, logHeight - 2f)
+            )
+            drawOval(
+                color = Color(0xFF3E2723),
+                topLeft = Offset(cabinRight + 1f, logY + 3f),
+                size = Size(9f, logHeight - 6f)
+            )
+            drawCircle(
+                color = Color(0xFF1B0F09),
+                center = Offset(cabinRight + 5.5f, logY + logHeight * 0.5f),
+                radius = 1.8f
+            )
+        }
 
         val flickerT = sceneTime()
         val candle = (0.88f + 0.12f * sin(flickerT * 7.3f) * sin(flickerT * 2.9f + 1f)).coerceIn(0.7f, 1f)
@@ -167,30 +201,45 @@ object GameRenderer {
             topLeft = Offset(winX, winY),
             size = Size(winW, winH)
         )
-        drawLine(
-            color = Color(0xFF3E2723),
-            start = Offset(winX + winW / 2, winY),
-            end = Offset(winX + winW / 2, winY + winH),
-            strokeWidth = 3f
+        // Stone texture bands
+        for (c in 1..3) {
+            drawLine(
+                color = Color(0xFF263238),
+                start = Offset(chimneyX, chimneyY + c * 10f),
+                end = Offset(chimneyX + chimneyW, chimneyY + c * 10f),
+                strokeWidth = 2f
+            )
+        }
+        // Faint chimney smoke puff
+        drawCircle(
+            color = Color(0x33ECEFF1),
+            center = Offset(chimneyX + chimneyW * 0.5f, chimneyY - 8f),
+            radius = 6f
         )
-        drawLine(
-            color = Color(0xFF3E2723),
-            start = Offset(winX, winY + winH / 2),
-            end = Offset(winX + winW, winY + winH / 2),
-            strokeWidth = 3f
+        drawCircle(
+            color = Color(0x22ECEFF1),
+            center = Offset(chimneyX + chimneyW * 0.6f + 4f, chimneyY - 18f),
+            radius = 9f
         )
 
-        // Overhanging Roof
+        // 4. Overhanging Shingle/Timber Roof
         val roofPath = Path().apply {
-            moveTo(0f, cabinTop - 38f)
-            lineTo(cabinRight + houseWidth * 0.16f, cabinTop + 14f)
-            lineTo(cabinRight + houseWidth * 0.12f, cabinTop + 30f)
-            lineTo(0f, cabinTop - 14f)
+            moveTo(0f, cabinTop - 42f)
+            lineTo(cabinRight + houseWidth * 0.18f, cabinTop + 16f)
+            lineTo(cabinRight + houseWidth * 0.14f, cabinTop + 32f)
+            lineTo(0f, cabinTop - 18f)
             close()
         }
-        drawPath(roofPath, color = Color(0xFF334148))
+        drawPath(roofPath, color = Color(0xFF37474F))
+        // Roof fascia wooden trim
+        drawLine(
+            color = Color(0xFF24130B),
+            start = Offset(0f, cabinTop - 18f),
+            end = Offset(cabinRight + houseWidth * 0.14f, cabinTop + 32f),
+            strokeWidth = 4f
+        )
 
-        // Automated Roof Sentry Turret if unlocked
+        // 5. Automated Roof Sentry Turret if unlocked
         if (engine.defenseUpgrades.turretLevel > 0) {
             val turretBase = engine.roofTurretOffset
             drawRoundRect(
@@ -218,7 +267,108 @@ object GameRenderer {
             )
         }
 
-        // Porch Deck
+        // 6. Rustic Front Door on Porch
+        val doorW = 28f
+        val doorH = 58f
+        val doorX = cabinRight * 0.12f
+        val doorY = porchY - doorH
+        drawRect(
+            color = Color(0xFF261610),
+            topLeft = Offset(doorX - 2f, doorY - 2f),
+            size = Size(doorW + 4f, doorH + 2f)
+        )
+        drawRect(
+            color = Color(0xFF3E2723),
+            topLeft = Offset(doorX, doorY),
+            size = Size(doorW, doorH)
+        )
+        // Diagonal Z-brace plank on cabin door
+        drawLine(
+            color = Color(0xFF4E342E),
+            start = Offset(doorX + 3f, doorY + 6f),
+            end = Offset(doorX + doorW - 3f, doorY + doorH - 6f),
+            strokeWidth = 3.5f
+        )
+        // Brass knob
+        drawCircle(color = Color(0xFFFFB300), center = Offset(doorX + doorW - 5f, doorY + doorH * 0.55f), radius = 2.5f)
+
+        // 7. Cabin Window with Warm Candlelight & Shutters
+        val winW = houseWidth * 0.24f
+        val winH = winW * 0.90f
+        val winX = cabinRight * 0.46f
+        val winY = cabinTop + cabinHeight * 0.22f
+
+        // Warm radial candlelight glow pouring from window
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(Color(0xCCFFA000), Color(0x44FFB300), Color.Transparent),
+                center = Offset(winX + winW / 2, winY + winH / 2),
+                radius = winW * 1.6f
+            ),
+            center = Offset(winX + winW / 2, winY + winH / 2),
+            radius = winW * 1.6f
+        )
+        // Window Shutters on left and right
+        drawRoundRect(
+            color = Color(0xFF3E2723),
+            topLeft = Offset(winX - 12f, winY),
+            size = Size(10f, winH),
+            cornerRadius = CornerRadius(2f, 2f)
+        )
+        drawRoundRect(
+            color = Color(0xFF3E2723),
+            topLeft = Offset(winX + winW + 2f, winY),
+            size = Size(10f, winH),
+            cornerRadius = CornerRadius(2f, 2f)
+        )
+        // Window Frame
+        drawRect(
+            color = Color(0xFF1B0F09),
+            topLeft = Offset(winX - 2.5f, winY - 2.5f),
+            size = Size(winW + 5f, winH + 5f)
+        )
+        drawRect(
+            color = Color(0xFFFFD54F),
+            topLeft = Offset(winX, winY),
+            size = Size(winW, winH)
+        )
+        drawLine(
+            color = Color(0xFF3E2723),
+            start = Offset(winX + winW / 2, winY),
+            end = Offset(winX + winW / 2, winY + winH),
+            strokeWidth = 2.5f
+        )
+        drawLine(
+            color = Color(0xFF3E2723),
+            start = Offset(winX, winY + winH / 2),
+            end = Offset(winX + winW, winY + winH / 2),
+            strokeWidth = 2.5f
+        )
+
+        // 8. Porch Roof Overhang Support Strut & Hanging Storm Lantern
+        drawLine(
+            color = Color(0xFF3E2723),
+            start = Offset(cabinRight, cabinTop + cabinHeight * 0.35f),
+            end = Offset(houseWidth * 0.88f, porchY - 50f),
+            strokeWidth = 5f
+        )
+        // Hanging brass storm lantern
+        val lanternX = cabinRight + 10f
+        val lanternY = porchY - 52f
+        drawLine(color = Color(0xFF1B0F09), start = Offset(lanternX, lanternY - 10f), end = Offset(lanternX, lanternY), strokeWidth = 2f)
+        drawCircle(color = Color(0xFFFFB300), center = Offset(lanternX, lanternY + 6f), radius = 5.5f)
+        drawCircle(color = Color(0xFFFFF176), center = Offset(lanternX, lanternY + 6f), radius = 3.5f)
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(Color(0x66FFC107), Color.Transparent),
+                center = Offset(lanternX, lanternY + 6f),
+                radius = 32f
+            ),
+            center = Offset(lanternX, lanternY + 6f),
+            radius = 32f
+        )
+
+        // 9. Porch Wooden Deck Planks
         drawRect(
             color = Color(0xFF5D4037),
             topLeft = Offset(0f, porchY),
@@ -230,8 +380,18 @@ object GameRenderer {
             end = Offset(houseWidth, porchY + 18f),
             strokeWidth = 4f
         )
+        // Individual plank seams on deck
+        for (p in 1..8) {
+            val plankX = p * (houseWidth / 8.5f)
+            drawLine(
+                color = Color(0xFF3E2723),
+                start = Offset(plankX, porchY),
+                end = Offset(plankX, porchY + 18f),
+                strokeWidth = 1.5f
+            )
+        }
 
-        // Barricade & Sandbags (Waist-high tactical defense fortification)
+        // 10. Barricade & Sandbags (Waist-high tactical defense fortification)
         val barricadeX = houseWidth - 14f
         val barricadeH = 46f
         val barricadeTop = porchY - barricadeH + 16f
@@ -325,7 +485,7 @@ object GameRenderer {
     }
 
     private fun DrawScope.drawHeroSoldier(engine: GameEngine, aimTarget: Offset?) {
-        val porchY = engine.screenHeight * 0.48f
+        val porchY = engine.screenHeight * 0.58f
 
         // Soldier positioned right at the defense post behind waist-high barricade
         val bodyX = engine.houseWidth - 42f
@@ -336,8 +496,8 @@ object GameRenderer {
 
         val target = aimTarget ?: Offset(engine.screenWidth * 0.75f, porchY - 20f)
         val rawAngle = atan2(target.y - gunAnchorY, target.x - gunAnchorX)
-        // Clamp strictly between -37° and +37° towards the swamp so character never aims backwards
-        val aimAngle = rawAngle.coerceIn(-0.65f, 0.65f)
+        // Clamp from -48° (-0.85 rad) up to +80° (+1.40 rad) down so character can aim and shoot under the house
+        val aimAngle = rawAngle.coerceIn(-0.85f, 1.40f)
 
         // Stool/defense bench
         drawRoundRect(
