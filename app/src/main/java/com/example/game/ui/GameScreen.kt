@@ -62,7 +62,8 @@ fun GameScreen(
             .pointerInput(Unit) {
                 detectTapGestures(
                     onPress = { offset ->
-                        if (offset.x >= engine.houseWidth * 0.82f) {
+                        val isInsideWeaponHUD = offset.x < engine.houseWidth * 0.65f && offset.y < engine.screenHeight * 0.50f
+                        if (!isInsideWeaponHUD) {
                             isTouching = true
                             aimTarget = offset
                             engine.onTouchShoot(offset.x, offset.y)
@@ -75,7 +76,8 @@ fun GameScreen(
             .pointerInput(Unit) {
                 detectDragGestures(
                     onDragStart = { offset ->
-                        if (offset.x >= engine.houseWidth * 0.82f) {
+                        val isInsideWeaponHUD = offset.x < engine.houseWidth * 0.65f && offset.y < engine.screenHeight * 0.50f
+                        if (!isInsideWeaponHUD) {
                             isTouching = true
                             aimTarget = offset
                             engine.onTouchShoot(offset.x, offset.y)
@@ -88,7 +90,8 @@ fun GameScreen(
                         isTouching = false
                     },
                     onDrag = { change, _ ->
-                        if (change.position.x >= engine.houseWidth * 0.82f) {
+                        val isInsideWeaponHUD = change.position.x < engine.houseWidth * 0.65f && change.position.y < engine.screenHeight * 0.50f
+                        if (!isInsideWeaponHUD) {
                             aimTarget = change.position
                             engine.onTouchShoot(change.position.x, change.position.y)
                         }

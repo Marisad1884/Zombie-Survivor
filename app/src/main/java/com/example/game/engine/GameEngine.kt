@@ -126,7 +126,7 @@ class GameEngine(
 
     val playerMuzzleOffset: Offset
         get() {
-            val porchY = screenHeight * 0.48f
+            val porchY = screenHeight * 0.58f
             val bodyX = houseWidth - 42f
             val bodyY = porchY - 54f
             val gunAnchorX = bodyX + 16f
@@ -135,7 +135,7 @@ class GameEngine(
         }
 
     val roofTurretOffset: Offset
-        get() = Offset(houseWidth * 0.45f, screenHeight * 0.20f)
+        get() = Offset(houseWidth * 0.42f, screenHeight * 0.28f)
 
     init {
         startNewRun()
@@ -219,7 +219,9 @@ class GameEngine(
     fun onTouchShoot(touchX: Float, touchY: Float) {
         if (status != GameStatus.PLAYING) return
 
-        if (touchX < houseWidth * 0.82f) return
+        val porchY = screenHeight * 0.58f
+        // Only block taps if inside top-left weapon selector HUD
+        if (touchX < houseWidth * 0.65f && touchY < porchY - 50f) return
 
         val now = System.currentTimeMillis()
         val weapon = currentWeapon
@@ -248,9 +250,11 @@ class GameEngine(
         weapon.currentAmmo--
 
         val origin = playerMuzzleOffset
-        val dx = (touchX - origin.x).coerceAtLeast(10f)
+        val targetX = touchX.coerceAtLeast(barricadeX + 8f)
+        val dx = (targetX - origin.x).coerceAtLeast(4f)
         val dy = touchY - origin.y
-        val baseAngle = atan2(dy, dx).coerceIn(-0.65f, 0.65f)
+        // Expanded vertical aim angle: from -48° (-0.85 rad) upwards to +80° (+1.40 rad) downwards into water!
+        val baseAngle = atan2(dy, dx).coerceIn(-0.85f, 1.40f)
 
         soundManager.playShotSound(weapon.type)
         muzzleFlashTimer = 0.08f
@@ -793,13 +797,35 @@ class GameEngine(
                 }
             } else {
                 var hitZombie: Zombie? = null
-                for (z in zombies) {
-                    val zLeft = z.x - z.type.width * 0.55f
-                    val zRight = z.x + z.type.width * 0.55f
-                    val zTop = z.y - z.type.height * 0.95f
-                    val zBottom = z.y + 12f
+                val prevX = p.x - p.vx * dt
+                val prevY = p.y - p.vy * dt
 
-                    if (p.x in zLeft..zRight && p.y in zTop..zBottom) {
+                for (z in zombies) {
+                    val zCenterX = z.x
+                    val zCenterY = z.y - z.type.height * 0.5f
+                    // Generous hitboxes tailored to each zombie type with projectile radius margin
+                    val extraH = if (z.type == ZombieType.ZOMBIE_DOG || z.type == ZombieType.GATOR) 16f else 8f
+                    val halfW = z.type.width * 0.62f + p.radius + 8f
+                    val halfH = z.type.height * 0.55f + extraH + p.radius + 8f
+
+                    val zLeft = zCenterX - halfW
+                    val zRight = zCenterX + halfW
+                    val zTop = zCenterY - halfH
+                    val zBottom = zCenterY + halfH
+
+                    // Continuous collision check with 4 interpolation sub-steps (prevents fast bullet tunneling!)
+                    var collides = false
+                    for (step in 0..4) {
+                        val fraction = step / 4f
+                        val testX = prevX + (p.x - prevX) * fraction
+                        val testY = prevY + (p.y - prevY) * fraction
+                        if (testX in zLeft..zRight && testY in zTop..zBottom) {
+                            collides = true
+                            break
+                        }
+                    }
+
+                    if (collides) {
                         hitZombie = z
                         break
                     }
@@ -894,8 +920,8 @@ class GameEngine(
     }
 
     private fun spawnZombieForCurrentWave() {
-        val waterTop = screenHeight * 0.38f
-        val waterBottom = screenHeight * 0.90f
+        val waterTop = screenHeight * 0.48f
+        val waterBottom = screenHeight * 0.94f
         val spawnY = waterTop + Random.nextFloat() * (waterBottom - waterTop)
 
         val type = when {
