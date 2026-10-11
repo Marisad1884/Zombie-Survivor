@@ -25,231 +25,53 @@ object GameRenderer {
         engine.screenWidth = w
         engine.screenHeight = h
 
+        val t = sceneTime()
+        val waterTop = h * 0.38f
+
         drawScope.withTransform({
             translate(left = engine.shakeX, top = engine.shakeY)
         }) {
-            // 1. Atmosphere: Sky, Moon, Swamp Trees, Fireflies
-            drawAtmosphere(w, h)
+            // 1. Night sky, moon, clouds, cypress trees and fireflies
+            drawNightSky(w, h, t)
 
-            // 2. Swamp Water, Reflection, and Fog
-            val waterTop = h * 0.44f
-            drawSwampWater(w, h, waterTop)
+            // 2. Swamp water: moonlight reflection, waves, lily pads and fog
+            drawSwampWaterLayer(w, h, waterTop, t)
 
-            // 3. Cabin, Porch, Barricade and Roof Sentry Turret
-            val houseWidth = engine.houseWidth
-            drawCabinAndPorch(houseWidth, h, waterTop, engine)
+            // 3. Blood stains on the water (flat decals, under every character)
+            drawDecals(engine.particles)
 
-            // 4. Hero Soldier Character (matching image: US flag helmet, gas mask with glowing green lenses)
+            // 4. Cabin, porch, barricade and roof sentry turret
+            drawCabinAndPorch(engine.houseWidth, h, waterTop, engine)
+
+            // 5. Hero soldier
             drawHeroSoldier(engine, aimTarget)
 
-            // 5. Fire Zones (Molotov pools)
+            // 6. Fire zones (Molotov pools)
             engine.fireZones.forEach { fire ->
-                drawFireZone(fire)
+                drawFireZoneFx(fire, t)
             }
 
-            // 6. Zombies sorted by Y for perspective layering
+            // 7. Zombies sorted by Y for perspective layering
             val sortedZombies = engine.zombies.sortedBy { it.y }
             sortedZombies.forEach { zombie ->
                 drawZombie(zombie, waterTop)
             }
 
-            // 7. Projectiles
+            // 8. Projectiles with tracers and glow
             engine.projectiles.forEach { p ->
-                drawProjectile(p)
+                drawProjectileFx(p, t)
             }
 
-            // 8. Particles (Explosions, Blood, Splashes, Muzzle Flash, Floating Text)
-            engine.particles.forEach { part ->
-                drawParticle(part)
-            }
-        }
-    }
+            // 9. Particles (explosions, blood, sparks, smoke, floating text...)
+            drawParticlesFx(engine.particles)
 
-    private fun DrawScope.drawAtmosphere(w: Float, h: Float) {
-        val time = System.currentTimeMillis()
-
-        // Deep nocturnal bayou gradient with atmospheric stars
-        drawRect(
-            brush = Brush.verticalGradient(
-                colors = listOf(
-                    Color(0xFF040A0D),
-                    Color(0xFF081613),
-                    Color(0xFF0E221C)
-                ),
-                startY = 0f,
-                endY = h * 0.45f
-            ),
-            size = Size(w, h * 0.45f)
-        )
-
-        // Distant twinkling stars
-        for (i in 0..14) {
-            val sx = (i * 83f + 40f) % (w * 0.95f)
-            val sy = (i * 37f + 15f) % (h * 0.32f)
-            val starAlpha = 0.4f + sin(time * 0.002f + i).absoluteValue * 0.5f
-            drawCircle(
-                color = Color.White.copy(alpha = starAlpha),
-                center = Offset(sx, sy),
-                radius = if (i % 3 == 0) 2f else 1.2f
-            )
+            // 10. Light spilling from the muzzle + a cold night tint over the scene
+            drawMuzzleLight(engine.playerMuzzleOffset, engine.muzzleFlashTimer)
+            drawNightTint(w, h)
         }
 
-        // Full Moon with Multi-layered Outer Glow
-        val moonX = w * 0.74f
-        val moonY = h * 0.16f
-        val moonRadius = min(w, h) * 0.085f
-
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(Color(0x88FFFDE7), Color(0x22FFFDE7), Color.Transparent),
-                center = Offset(moonX, moonY),
-                radius = moonRadius * 2.8f
-            ),
-            center = Offset(moonX, moonY),
-            radius = moonRadius * 2.8f
-        )
-        drawCircle(
-            color = Color(0xFFFFF9C4),
-            center = Offset(moonX, moonY),
-            radius = moonRadius
-        )
-        // Moon Craters
-        drawCircle(
-            color = Color(0xFFFFF176),
-            center = Offset(moonX - moonRadius * 0.25f, moonY - moonRadius * 0.2f),
-            radius = moonRadius * 0.22f
-        )
-        drawCircle(
-            color = Color(0xFFFFF176),
-            center = Offset(moonX + moonRadius * 0.35f, moonY + moonRadius * 0.25f),
-            radius = moonRadius * 0.18f
-        )
-        drawCircle(
-            color = Color(0xFFFFF176),
-            center = Offset(moonX + moonRadius * 0.1f, moonY - moonRadius * 0.3f),
-            radius = moonRadius * 0.14f
-        )
-
-        // Cypress silhouette trees in background
-        drawCypressTree(w * 0.38f, h * 0.38f, 130f, 180f)
-        drawCypressTree(w * 0.54f, h * 0.38f, 110f, 150f)
-        drawCypressTree(w * 0.88f, h * 0.38f, 160f, 220f)
-
-        // Drifting fireflies with soft green halos
-        for (i in 0..8) {
-            val fx = (w * 0.32f) + (i * 95f + sin(time * 0.001f + i) * 40f) % (w * 0.65f)
-            val fy = (h * 0.25f) + (sin(time * 0.0015f + i * 2f) * 45f) + (i * 18f)
-            // Firefly glow
-            drawCircle(
-                color = Color(0x3376FF03),
-                center = Offset(fx, fy),
-                radius = 8f
-            )
-            // Firefly core
-            drawCircle(
-                color = Color(0xCCCCFF90),
-                center = Offset(fx, fy),
-                radius = 3.2f
-            )
-        }
-    }
-
-    private fun DrawScope.drawCypressTree(x: Float, baseY: Float, width: Float, height: Float) {
-        val treeColor = Color(0xFF07110E)
-        val trunkWidth = width * 0.22f
-
-        drawRect(
-            color = treeColor,
-            topLeft = Offset(x - trunkWidth / 2f, baseY - height * 0.55f),
-            size = Size(trunkWidth, height * 0.55f)
-        )
-        drawOval(
-            color = treeColor,
-            topLeft = Offset(x - width * 0.5f, baseY - height),
-            size = Size(width, height * 0.7f)
-        )
-        drawOval(
-            color = Color(0xFF0C1B16),
-            topLeft = Offset(x - width * 0.35f, baseY - height * 0.85f),
-            size = Size(width * 0.7f, height * 0.45f)
-        )
-
-        for (i in -2..2) {
-            val mossX = x + i * (width * 0.18f)
-            drawLine(
-                color = Color(0x77162C24),
-                start = Offset(mossX, baseY - height * 0.45f),
-                end = Offset(mossX, baseY - height * 0.22f),
-                strokeWidth = 3.5f
-            )
-        }
-    }
-
-    private fun DrawScope.drawSwampWater(w: Float, h: Float, waterTop: Float) {
-        val time = System.currentTimeMillis()
-
-        // Deep swamp water gradient
-        drawRect(
-            brush = Brush.verticalGradient(
-                colors = listOf(
-                    Color(0xFF122820),
-                    Color(0xFF0C1D17),
-                    Color(0xFF06110D)
-                ),
-                startY = waterTop,
-                endY = h
-            ),
-            topLeft = Offset(0f, waterTop),
-            size = Size(w, h - waterTop)
-        )
-
-        // Water specular waves
-        for (i in 0..5) {
-            val waveY = waterTop + 30f + i * ((h - waterTop) / 6f)
-            val waveOffset = sin(time * 0.0012f + i).toFloat() * 18f
-            drawLine(
-                color = Color(0x2280CBC4),
-                start = Offset(w * 0.25f + waveOffset, waveY),
-                end = Offset(w * 0.95f - waveOffset, waveY),
-                strokeWidth = 2.5f
-            )
-        }
-
-        // Misty marsh fog overlay
-        drawRect(
-            brush = Brush.verticalGradient(
-                colors = listOf(
-                    Color(0x334CAF50),
-                    Color(0x151B5E20),
-                    Color.Transparent
-                ),
-                startY = waterTop - 25f,
-                endY = waterTop + 75f
-            ),
-            topLeft = Offset(0f, waterTop - 25f),
-            size = Size(w, 100f)
-        )
-
-        // Water ripples & floating lily pads with water flowers
-        drawOval(
-            color = Color(0x442E7D32),
-            topLeft = Offset(w * 0.42f, h * 0.55f),
-            size = Size(76f, 22f)
-        )
-        drawCircle(color = Color(0xFFFF80AB), center = Offset(w * 0.42f + 38f, h * 0.55f + 11f), radius = 3.5f)
-
-        drawOval(
-            color = Color(0x442E7D32),
-            topLeft = Offset(w * 0.68f, h * 0.76f),
-            size = Size(96f, 26f)
-        )
-        drawCircle(color = Color(0xFFFFD54F), center = Offset(w * 0.68f + 48f, h * 0.76f + 13f), radius = 4f)
-
-        drawOval(
-            color = Color(0x442E7D32),
-            topLeft = Offset(w * 0.84f, h * 0.48f),
-            size = Size(64f, 20f)
-        )
+        // Vignette is drawn outside the shake transform so the screen edges stay put
+        drawScope.drawVignette(w, h)
     }
 
     private fun DrawScope.drawCabinAndPorch(
@@ -353,16 +175,31 @@ object GameRenderer {
             )
         }
 
-        // 3. Rustic Stone Chimney on Roof
-        val chimneyW = 20f
-        val chimneyH = 42f
-        val chimneyX = cabinRight * 0.22f
-        val chimneyY = cabinTop - 42f
-        drawRoundRect(
-            color = Color(0xFF455A64),
-            topLeft = Offset(chimneyX, chimneyY),
-            size = Size(chimneyW, chimneyH),
-            cornerRadius = CornerRadius(2f, 2f)
+        val flickerT = sceneTime()
+        val candle = (0.88f + 0.12f * sin(flickerT * 7.3f) * sin(flickerT * 2.9f + 1f)).coerceIn(0.7f, 1f)
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color(0xFFFFA000).copy(alpha = 0.67f * candle),
+                    Color(0xFFFFB300).copy(alpha = 0.2f * candle),
+                    Color.Transparent
+                ),
+                center = Offset(winX + winW / 2, winY + winH / 2),
+                radius = winW * 2.0f
+            ),
+            center = Offset(winX + winW / 2, winY + winH / 2),
+            radius = winW * 2.0f,
+            blendMode = BlendMode.Plus
+        )
+        drawRect(
+            color = Color(0xFF1B0F09),
+            topLeft = Offset(winX - 3f, winY - 3f),
+            size = Size(winW + 6f, winH + 6f)
+        )
+        drawRect(
+            color = Color(0xFFFFD54F),
+            topLeft = Offset(winX, winY),
+            size = Size(winW, winH)
         )
         // Stone texture bands
         for (c in 1..3) {
@@ -839,8 +676,11 @@ object GameRenderer {
         weaponType: WeaponType,
         muzzleFlashTimer: Float
     ) {
+        // Kick the weapon back along its axis right after each shot
+        val recoil = (muzzleFlashTimer / 0.08f).coerceIn(0f, 1f) * 4f
         withTransform({
             rotate(degrees = angle * (180f / PI.toFloat()), pivot = Offset(anchorX, anchorY))
+            translate(left = -recoil, top = 0f)
         }) {
             val gunLength = when (weaponType) {
                 WeaponType.PISTOL -> 28f
@@ -1150,6 +990,13 @@ object GameRenderer {
             size = Size(w * 1.1f, 14f)
         )
 
+        // Glowing aura so bosses / brutes stand out in the dark
+        if (z.type == ZombieType.COLOSSUS) {
+            drawEliteAura(zX, zY, w, Color(0xFFFF1744), sceneTime())
+        } else if (z.type == ZombieType.TANK) {
+            drawEliteAura(zX, zY, w, Color(0xFF76FF03), sceneTime())
+        }
+
         // Specialized non-humanoid zombies
         if (z.type == ZombieType.GATOR) {
             drawGatorZombie(z, isHit)
@@ -1328,6 +1175,17 @@ object GameRenderer {
             drawLine(color = veinColor, start = Offset(zX + torsoW * 0.1f, torsoY + 16f), end = Offset(zX - torsoW * 0.1f, torsoY + 26f), strokeWidth = 1.8f)
         }
 
+        // Fresh wounds appear as the zombie takes damage
+        if (!isHit && z.currentHp < z.maxHp * 0.6f) {
+            val wound = Color(0xFF7B0D12)
+            drawLine(wound, Offset(zX - torsoW * 0.1f, torsoY + 4f), Offset(zX + torsoW * 0.22f, torsoY + 15f), 3f, StrokeCap.Round)
+            drawCircle(Color(0xFFB71C1C), 2.4f, Offset(zX + torsoW * 0.22f, torsoY + 15f))
+            if (z.currentHp < z.maxHp * 0.3f) {
+                drawLine(wound, Offset(zX - torsoW * 0.3f, torsoY + torsoH * 0.55f), Offset(zX + torsoW * 0.05f, torsoY + torsoH * 0.8f), 3.2f, StrokeCap.Round)
+                drawCircle(Color(0xFFB71C1C), 2.8f, Offset(zX - torsoW * 0.3f, torsoY + torsoH * 0.55f))
+            }
+        }
+
         // 4. Arms & Claws
         val armY = torsoY + 8f
         val armStroke = if (z.type == ZombieType.COLOSSUS) 15f else if (z.type == ZombieType.TANK) 11f else 6.5f
@@ -1481,7 +1339,7 @@ object GameRenderer {
         // Left eye (bulging, glowing)
         val eyeCenterX = headX - headRadius * 0.42f
         val eyeCenterY = headY - headRadius * 0.15f
-        drawCircle(color = Color(0x66FF1744), center = Offset(eyeCenterX, eyeCenterY), radius = 4f)
+        glow(eyeCenterX, eyeCenterY, 11f, eyeColor.copy(alpha = 0.55f))
         drawCircle(color = eyeColor, center = Offset(eyeCenterX, eyeCenterY), radius = 2.8f)
         drawCircle(color = Color(0xFF1B0000), center = Offset(eyeCenterX - 0.7f, eyeCenterY), radius = 1.2f)
 
@@ -1673,155 +1531,4 @@ object GameRenderer {
         }
     }
 
-    private fun DrawScope.drawFireZone(fire: ActiveFireZone) {
-        val r = fire.radius
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    Color(0xBBFF5722),
-                    Color(0x66FF9800),
-                    Color.Transparent
-                ),
-                center = Offset(fire.x, fire.y),
-                radius = r
-            ),
-            center = Offset(fire.x, fire.y),
-            radius = r
-        )
-
-        for (i in -3..3) {
-            val fx = fire.x + i * (r * 0.22f)
-            val timeOffset = (System.currentTimeMillis() % 100000L).toFloat() * 0.006f
-            val flameH = 20f + (sin(fx * 0.1f + timeOffset).absoluteValue * 18f)
-            drawOval(
-                color = Color(0xFFFFEB3B),
-                topLeft = Offset(fx - 6f, fire.y - flameH),
-                size = Size(12f, flameH)
-            )
-        }
-    }
-
-    private fun DrawScope.drawProjectile(p: Projectile) {
-        when (p.type) {
-            ProjectileType.BULLET -> {
-                drawLine(
-                    color = Color(0xFFFFD54F),
-                    start = Offset(p.x, p.y),
-                    end = Offset(p.x - p.vx * 0.02f, p.y - p.vy * 0.02f),
-                    strokeWidth = 3f
-                )
-                drawCircle(
-                    color = Color(0xFFFFF59D),
-                    center = Offset(p.x, p.y),
-                    radius = p.radius
-                )
-            }
-            ProjectileType.PELLET -> {
-                drawCircle(
-                    color = Color(0xFFFF9800),
-                    center = Offset(p.x, p.y),
-                    radius = p.radius
-                )
-            }
-            ProjectileType.GRENADE -> {
-                drawCircle(
-                    color = Color(0xFF37474F),
-                    center = Offset(p.x, p.y),
-                    radius = p.radius
-                )
-                drawCircle(
-                    color = Color(0xFFFF5722),
-                    center = Offset(p.x, p.y),
-                    radius = p.radius * 0.4f
-                )
-            }
-            ProjectileType.ACID_SPIT -> {
-                drawCircle(
-                    color = Color(0xFF76FF03),
-                    center = Offset(p.x, p.y),
-                    radius = p.radius
-                )
-                drawCircle(
-                    color = Color(0xFFCCFF90),
-                    center = Offset(p.x, p.y),
-                    radius = p.radius * 0.5f
-                )
-            }
-            ProjectileType.BOLT -> {
-                // Crossbow piercing bolt
-                drawLine(
-                    color = Color(0xFF8D6E63),
-                    start = Offset(p.x, p.y),
-                    end = Offset(p.x - p.vx * 0.025f, p.y - p.vy * 0.025f),
-                    strokeWidth = 3.5f
-                )
-                drawCircle(
-                    color = Color(0xFFCFD8DC),
-                    center = Offset(p.x, p.y),
-                    radius = 4f
-                )
-            }
-            ProjectileType.FLAME -> {
-                // Flamethrower fiery cloud
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(Color(0xFFFFEB3B), Color(0xFFFF5722), Color.Transparent),
-                        center = Offset(p.x, p.y),
-                        radius = p.radius * 1.5f
-                    ),
-                    center = Offset(p.x, p.y),
-                    radius = p.radius * 1.5f
-                )
-            }
-            ProjectileType.SNIPER_BULLET -> {
-                // Heavy .50 cal high-speed tracer
-                drawLine(
-                    color = Color(0xFFFFD700),
-                    start = Offset(p.x, p.y),
-                    end = Offset(p.x - p.vx * 0.035f, p.y - p.vy * 0.035f),
-                    strokeWidth = 5f
-                )
-                drawCircle(
-                    color = Color(0xFFFFFFFF),
-                    center = Offset(p.x, p.y),
-                    radius = p.radius
-                )
-            }
-        }
-    }
-
-    private fun DrawScope.drawParticle(part: Particle) {
-        val alphaColor = part.color.copy(alpha = part.alpha)
-
-        when (part.type) {
-            ParticleType.BLOOD, ParticleType.TOXIC_SLIME, ParticleType.WATER_SPLASH, ParticleType.EXPLOSION_FIRE -> {
-                drawCircle(
-                    color = alphaColor,
-                    center = Offset(part.x, part.y),
-                    radius = part.radius * part.scale
-                )
-            }
-            ParticleType.MUZZLE_FLASH -> {
-                drawCircle(
-                    color = alphaColor,
-                    center = Offset(part.x, part.y),
-                    radius = part.radius * part.scale
-                )
-            }
-            ParticleType.SMOKE, ParticleType.SHELL_CASING -> {
-                drawCircle(
-                    color = alphaColor,
-                    center = Offset(part.x, part.y),
-                    radius = part.radius
-                )
-            }
-            ParticleType.FLOATING_TEXT -> {
-                drawCircle(
-                    color = alphaColor,
-                    center = Offset(part.x, part.y),
-                    radius = 4f
-                )
-            }
-        }
-    }
 }

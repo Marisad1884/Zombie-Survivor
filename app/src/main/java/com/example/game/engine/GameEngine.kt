@@ -110,6 +110,10 @@ class GameEngine(
 
     val waveClearDuration: Float = 5.0f
 
+    private companion object {
+        const val MAX_PARTICLES = 650
+    }
+
     // Roof Sentry Turret timer
     private var timeSinceLastTurretShot: Float = 0f
     private val molotovCooldownMax: Float = 7f
@@ -191,7 +195,9 @@ class GameEngine(
             screenWidth * 0.5f,
             screenHeight * 0.3f,
             if (wave % 5 == 0) "¡ALERTA: OLEADA BOSS #$wave!" else "¡OLEADA $wave!",
-            if (wave % 5 == 0) Color(0xFFFF1744) else Color(0xFFFFD54F)
+            if (wave % 5 == 0) Color(0xFFFF1744) else Color(0xFFFFD54F),
+            life = 1.9f,
+            rise = -22f
         )
     }
 
@@ -259,6 +265,12 @@ class GameEngine(
         soundManager.playShotSound(weapon.type)
         muzzleFlashTimer = 0.08f
         addMuzzleFlash(origin.x, origin.y)
+        if (weapon.type != WeaponType.FLAMETHROWER &&
+            weapon.type != WeaponType.LAUNCHER &&
+            weapon.type != WeaponType.CROSSBOW
+        ) {
+            spawnShellCasing(origin.x - 26f, origin.y + 4f)
+        }
         triggerScreenShake(
             when (weapon.type) {
                 WeaponType.LAUNCHER -> 9f
@@ -428,6 +440,18 @@ class GameEngine(
         fireZones.add(ActiveFireZone(x = targetX.coerceAtLeast(barricadeX + 60f), y = targetY))
         spawnExplosion(targetX, targetY, isMolotov = true)
         spawnFloatingText(targetX, targetY - 40f, "¡FUEGO!", Color(0xFFFF5722))
+    }
+
+    /** Throws a molotov at the densest cluster of zombies (or the middle of the swamp if none). */
+    fun throwMolotovAtThreat() {
+        val waterTop = screenHeight * 0.38f
+        val candidates = zombies.filter { it.x < screenWidth - 20f }
+        val target = candidates.maxByOrNull { z ->
+            candidates.count { o -> hypot(o.x - z.x, o.y - z.y) <= 110f } * 1000f - z.x
+        }
+        val tx = (target?.x ?: (screenWidth * 0.6f)) - 20f
+        val ty = (target?.y ?: (screenHeight * 0.65f)).coerceIn(waterTop + 20f, screenHeight * 0.88f)
+        throwMolotov(tx, ty)
     }
 
     fun repairHouse(): Boolean {
@@ -696,6 +720,8 @@ class GameEngine(
                 )
             }
 
+            spawnFireAmbience(fire)
+
             zombies.forEach { z ->
                 val dist = hypot(z.x - fire.x, z.y - fire.y)
                 if (dist <= fire.radius) {
@@ -781,6 +807,10 @@ class GameEngine(
 
             p.x += p.vx * dt
             p.y += p.vy * dt
+
+            if (p.type == ProjectileType.GRENADE && Random.nextFloat() < 0.6f) {
+                spawnTrailSmoke(p.x, p.y)
+            }
 
             if (p.x > screenWidth + 100f || p.y < 0f || p.y > screenHeight) {
                 projIterator.remove()
@@ -881,6 +911,12 @@ class GameEngine(
                                 else -> Color(0xFFB71C1C)
                             }
                         )
+                        spawnImpactSparks(
+                            p.x,
+                            p.y,
+                            count = if (hitZombie.type.armorDamageReduction > 0f) 6 else 2,
+                            color = if (hitZombie.type.armorDamageReduction > 0f) Color(0xFFFFF59D) else Color(0xFFFFCC80)
+                        )
 
                         // Piercing deduction
                         p.pierceCount--
@@ -902,9 +938,16 @@ class GameEngine(
                 partIterator.remove()
                 continue
             }
+            part.vy += part.gravity * dt
+            part.scale = (part.scale + part.growth * dt).coerceAtLeast(0.05f)
             part.x += part.vx * dt
             part.y += part.vy * dt
             part.alpha = (part.life / part.maxLife).coerceIn(0f, 1f)
+        }
+
+        // Keep the particle count bounded so a minigun + explosions never tank the frame rate
+        if (particles.size > MAX_PARTICLES) {
+            particles.subList(0, particles.size - MAX_PARTICLES).clear()
         }
 
         // Check Wave Completion
@@ -991,7 +1034,8 @@ class GameEngine(
                 x = screenWidth + Random.nextFloat() * 70f + 30f,
                 y = spawnY,
                 currentHp = scaledHp,
-                maxHp = scaledHp
+                maxHp = scaledHp,
+                walkAnimTimer = Random.nextFloat() * 6.28f
             )
         )
     }
@@ -1012,6 +1056,16 @@ class GameEngine(
                 ZombieType.SPITTER -> Color(0xFF64DD17)
                 ZombieType.COLOSSUS -> Color(0xFFFF1744)
                 else -> Color(0xFFC2185B)
+            }
+        )
+        spawnBloodPool(
+            z.x,
+            z.y,
+            z.type.width * 0.45f,
+            when (z.type) {
+                ZombieType.SPITTER -> Color(0xFF33691E)
+                ZombieType.COLOSSUS -> Color(0xFF8E0E1A)
+                else -> Color(0xFF5A0A12)
             }
         )
         spawnFloatingText(z.x, z.y - 30f, "+$$reward", Color(0xFFFFD700))
@@ -1135,6 +1189,7 @@ class GameEngine(
     }
 
     private fun spawnExplosion(x: Float, y: Float, isMolotov: Boolean = false) {
+        spawnExplosionSmoke(x, y, isMolotov)
         for (i in 0..12) {
             val angle = Random.nextFloat() * (2 * PI.toFloat())
             val spd = 50f + Random.nextFloat() * 150f
@@ -1197,7 +1252,14 @@ class GameEngine(
         }
     }
 
-    private fun spawnFloatingText(x: Float, y: Float, text: String, color: Color) {
+    private fun spawnFloatingText(
+        x: Float,
+        y: Float,
+        text: String,
+        color: Color,
+        life: Float = 0.85f,
+        rise: Float = -45f
+    ) {
         particles.add(
             Particle(
                 id = nextParticleId++,
@@ -1205,12 +1267,153 @@ class GameEngine(
                 x = x,
                 y = y,
                 vx = 0f,
-                vy = -45f,
+                vy = rise,
                 alpha = 1f,
-                maxLife = 0.85f,
-                life = 0.85f,
+                maxLife = life,
+                life = life,
                 color = color,
                 text = text
+            )
+        )
+    }
+
+    private fun spawnShellCasing(x: Float, y: Float) {
+        particles.add(
+            Particle(
+                id = nextParticleId++,
+                type = ParticleType.SHELL_CASING,
+                x = x,
+                y = y,
+                vx = -40f - Random.nextFloat() * 50f,
+                vy = -110f - Random.nextFloat() * 60f,
+                alpha = 1f,
+                maxLife = 0.75f,
+                life = 0.75f,
+                color = Color(0xFFE0B040),
+                radius = 3f,
+                gravity = 520f,
+                rotation = Random.nextFloat() * 6.28f
+            )
+        )
+    }
+
+    private fun spawnImpactSparks(x: Float, y: Float, count: Int, color: Color) {
+        for (i in 0 until count) {
+            particles.add(
+                Particle(
+                    id = nextParticleId++,
+                    type = ParticleType.SPARK,
+                    x = x,
+                    y = y,
+                    vx = (Random.nextFloat() - 0.3f) * 320f,
+                    vy = (Random.nextFloat() - 0.7f) * 260f,
+                    alpha = 1f,
+                    maxLife = 0.22f,
+                    life = 0.22f,
+                    color = color,
+                    radius = 3f,
+                    gravity = 380f
+                )
+            )
+        }
+    }
+
+    private fun spawnTrailSmoke(x: Float, y: Float) {
+        particles.add(
+            Particle(
+                id = nextParticleId++,
+                type = ParticleType.SMOKE,
+                x = x,
+                y = y,
+                vx = (Random.nextFloat() - 0.5f) * 14f,
+                vy = -8f - Random.nextFloat() * 14f,
+                alpha = 0.6f,
+                maxLife = 0.55f,
+                life = 0.55f,
+                color = Color(0xFF90A4AE),
+                radius = 6f,
+                growth = 1.4f
+            )
+        )
+    }
+
+    private fun spawnExplosionSmoke(x: Float, y: Float, isMolotov: Boolean) {
+        val puffs = if (isMolotov) 4 else 7
+        for (i in 0 until puffs) {
+            particles.add(
+                Particle(
+                    id = nextParticleId++,
+                    type = ParticleType.SMOKE,
+                    x = x + (Random.nextFloat() - 0.5f) * 40f,
+                    y = y + (Random.nextFloat() - 0.5f) * 24f,
+                    vx = (Random.nextFloat() - 0.5f) * 50f,
+                    vy = -25f - Random.nextFloat() * 40f,
+                    alpha = 0.7f,
+                    maxLife = 0.9f + Random.nextFloat() * 0.4f,
+                    life = 1.0f,
+                    color = Color(0xFF37474F),
+                    radius = 16f,
+                    growth = 1.8f
+                )
+            )
+        }
+        if (!isMolotov) {
+            spawnImpactSparks(x, y, count = 10, color = Color(0xFFFFE082))
+        }
+    }
+
+    private fun spawnFireAmbience(fire: ActiveFireZone) {
+        if (Random.nextFloat() < 0.3f) {
+            particles.add(
+                Particle(
+                    id = nextParticleId++,
+                    type = ParticleType.EMBER,
+                    x = fire.x + (Random.nextFloat() - 0.5f) * fire.radius * 1.4f,
+                    y = fire.y - 4f,
+                    vx = (Random.nextFloat() - 0.5f) * 30f,
+                    vy = -55f - Random.nextFloat() * 60f,
+                    alpha = 1f,
+                    maxLife = 0.9f + Random.nextFloat() * 0.8f,
+                    life = 1.2f,
+                    color = Color(0xFFFF9100),
+                    radius = 2.5f + Random.nextFloat() * 1.5f
+                )
+            )
+        }
+        if (Random.nextFloat() < 0.07f) {
+            particles.add(
+                Particle(
+                    id = nextParticleId++,
+                    type = ParticleType.SMOKE,
+                    x = fire.x + (Random.nextFloat() - 0.5f) * fire.radius,
+                    y = fire.y - 24f,
+                    vx = (Random.nextFloat() - 0.5f) * 12f,
+                    vy = -30f - Random.nextFloat() * 20f,
+                    alpha = 0.5f,
+                    maxLife = 1.1f,
+                    life = 1.1f,
+                    color = Color(0xFF263238),
+                    radius = 14f,
+                    growth = 1.2f
+                )
+            )
+        }
+    }
+
+    private fun spawnBloodPool(x: Float, y: Float, radius: Float, color: Color) {
+        particles.add(
+            Particle(
+                id = nextParticleId++,
+                type = ParticleType.BLOOD_POOL,
+                x = x,
+                y = y + 3f,
+                vx = 0f,
+                vy = 0f,
+                alpha = 1f,
+                maxLife = 4f,
+                life = 4f,
+                color = color,
+                radius = radius
             )
         )
     }

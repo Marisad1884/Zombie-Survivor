@@ -420,5 +420,108 @@ fun GameHUD(
                 }
             }
         }
+
+        // MOLOTOV BUTTON: bottom-left, outside the shooting zone, throws at the densest zombie group
+        val molotovCount = engine.defenseUpgrades.molotovCount
+        val cooldown = engine.molotovCooldownRemaining
+        val molotovReady = molotovCount > 0 && cooldown <= 0f && engine.status == GameStatus.PLAYING
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 6.dp, bottom = 10.dp)
+                .size(68.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .testTag("hud_molotov_button")
+                    .align(Alignment.Center)
+                    .size(60.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (molotovReady) {
+                            Brush.radialGradient(listOf(Color(0xFFFFB300), Color(0xFFE64A19)))
+                        } else {
+                            Brush.radialGradient(listOf(Color(0xFF455A64), Color(0xFF263238)))
+                        }
+                    )
+                    .border(
+                        2.dp,
+                        if (molotovReady) Color(0xFFFFE082) else Color(0xFF546E7A),
+                        CircleShape
+                    )
+                    .clickable(enabled = molotovReady) { engine.throwMolotovAtThreat() },
+                contentAlignment = Alignment.Center
+            ) {
+                if (cooldown > 0f) {
+                    Text(
+                        text = "${cooldown.toInt() + 1}",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Color.White
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.LocalFireDepartment,
+                        contentDescription = "Molotov",
+                        tint = if (molotovCount > 0) Color.White else Color(0xFF78909C),
+                        modifier = Modifier.size(30.dp)
+                    )
+                }
+            }
+
+            // Remaining molotovs badge
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF1B2A1B))
+                    .border(1.5.dp, Color(0xFFFFD54F), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "$molotovCount",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White
+                )
+            }
+        }
+
+        // RELOAD BAR: appears at the bottom center only while the current weapon is reloading
+        if (currentWeapon.isReloading && engine.status == GameStatus.PLAYING) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(
+                    text = "RECARGANDO",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color(0xFFFFD54F),
+                    letterSpacing = 1.sp
+                )
+                Box(
+                    modifier = Modifier
+                        .width(140.dp)
+                        .height(7.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color(0xCC263238))
+                        .border(1.dp, Color(0x66FFD54F), RoundedCornerShape(4.dp))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(currentWeapon.reloadProgress.coerceIn(0f, 1f))
+                            .background(
+                                Brush.horizontalGradient(listOf(Color(0xFFFFB300), Color(0xFFFFEE58)))
+                            )
+                    )
+                }
+            }
+        }
     }
 }
