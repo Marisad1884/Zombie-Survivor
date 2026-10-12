@@ -33,9 +33,11 @@ object GameRenderer {
         }) {
             // 1. Night sky, moon, clouds, cypress trees and fireflies
             drawNightSky(w, h, t)
+            drawFarShore(w, h, waterTop, t)
 
             // 2. Swamp water: moonlight reflection, waves, lily pads and fog
             drawSwampWaterLayer(w, h, waterTop, t)
+            drawWaterDetails(w, h, waterTop, t)
 
             // 3. Blood stains on the water (flat decals, under every character)
             drawDecals(engine.particles)
@@ -65,7 +67,10 @@ object GameRenderer {
             // 9. Particles (explosions, blood, sparks, smoke, floating text...)
             drawParticlesFx(engine.particles)
 
-            // 10. Light spilling from the muzzle + a cold night tint over the scene
+            // 10. Foreground frame (reeds, hanging moss) for depth
+            drawForegroundFrame(w, h, t)
+
+            // 11. Light spilling from the muzzle + a cold night tint over the scene
             drawMuzzleLight(engine.playerMuzzleOffset, engine.muzzleFlashTimer)
             drawNightTint(w, h)
         }
@@ -77,7 +82,7 @@ object GameRenderer {
     private fun DrawScope.drawHeroSoldier(engine: GameEngine, aimTarget: Offset?) {
         val porchY = engine.porchY
 
-        // Soldier positioned right at the defense post behind waist-high barricade
+        // Heroine positioned right at the defense post behind the waist-high barricade
         val bodyX = engine.houseWidth - 42f
         val bodyY = porchY - 54f
 
@@ -87,176 +92,13 @@ object GameRenderer {
         val target = aimTarget ?: Offset(engine.screenWidth * 0.75f, porchY - 20f)
         val targetDx = (target.x - gunAnchorX).coerceAtLeast(3f)
         val rawAngle = atan2(target.y - gunAnchorY, targetDx)
-        // Clamp from -48° (-0.85 rad) up to +86° (+1.50 rad) down so character can aim and shoot under the house
+        // Clamp from -48 deg (-0.85 rad) up to +86 deg (+1.50 rad) down so she can aim and shoot under the house
         val aimAngle = rawAngle.coerceIn(-0.85f, 1.50f)
 
-        // Stool/defense bench
-        drawRoundRect(
-            color = Color(0xFF3E2723),
-            topLeft = Offset(bodyX - 22f, porchY - 26f),
-            size = Size(20f, 26f),
-            cornerRadius = CornerRadius(3f, 3f)
-        )
+        // Body, head, hair, scarf... (see HeroRenderer.kt)
+        drawHeroine(bodyX, bodyY, porchY, sceneTime(), engine.muzzleFlashTimer)
 
-        // Legs in combat camo pants
-        drawRoundRect(
-            color = Color(0xFF2E4E37),
-            topLeft = Offset(bodyX - 12f, bodyY + 32f),
-            size = Size(22f, 22f),
-            cornerRadius = CornerRadius(3f, 3f)
-        )
-        // Combat Boots firmly planted on porch deck
-        drawRoundRect(
-            color = Color(0xFF1B2428),
-            topLeft = Offset(bodyX - 13f, porchY - 8f),
-            size = Size(12f, 8f),
-            cornerRadius = CornerRadius(2f, 2f)
-        )
-        drawRoundRect(
-            color = Color(0xFF1B2428),
-            topLeft = Offset(bodyX - 1f, porchY - 8f),
-            size = Size(12f, 8f),
-            cornerRadius = CornerRadius(2f, 2f)
-        )
-
-        // Torso: Olive Drab Military Tactical Combat Vest
-        drawRoundRect(
-            color = Color(0xFF2E4E37),
-            topLeft = Offset(bodyX - 14f, bodyY + 4f),
-            size = Size(28f, 30f),
-            cornerRadius = CornerRadius(5f, 5f)
-        )
-        drawRoundRect(
-            color = Color(0xFF1E3526),
-            topLeft = Offset(bodyX - 10f, bodyY + 8f),
-            size = Size(20f, 22f),
-            cornerRadius = CornerRadius(4f, 4f)
-        )
-
-        // USA Flag Badge on Chest
-        drawRect(
-            color = Color(0xFF1A237E),
-            topLeft = Offset(bodyX - 7f, bodyY + 12f),
-            size = Size(6f, 6f)
-        )
-        drawRect(
-            color = Color(0xFFB71C1C),
-            topLeft = Offset(bodyX - 1f, bodyY + 12f),
-            size = Size(8f, 6f)
-        )
-        drawLine(
-            color = Color.White,
-            start = Offset(bodyX - 1f, bodyY + 14f),
-            end = Offset(bodyX + 7f, bodyY + 14f),
-            strokeWidth = 1.5f
-        )
-        drawLine(
-            color = Color.White,
-            start = Offset(bodyX - 1f, bodyY + 16f),
-            end = Offset(bodyX + 7f, bodyY + 16f),
-            strokeWidth = 1.5f
-        )
-
-        // Head position
-        val headX = bodyX
-        val headY = bodyY - 12f
-        val headRadius = 15f
-
-        // Gas Mask Faceplate
-        drawCircle(
-            color = Color(0xFF203B2E),
-            center = Offset(headX, headY),
-            radius = headRadius
-        )
-
-        // AMERICAN FLAG HELMET
-        val helmetCenter = Offset(headX, headY - 4f)
-        val helmetRadius = headRadius + 3.5f
-
-        // Blue field covering front-top
-        drawArc(
-            color = Color(0xFF154360),
-            startAngle = 170f,
-            sweepAngle = 110f,
-            useCenter = true,
-            topLeft = Offset(helmetCenter.x - helmetRadius, helmetCenter.y - helmetRadius),
-            size = Size(helmetRadius * 2, helmetRadius * 2)
-        )
-        // Red and White curved stripes on right/back
-        drawArc(
-            color = Color(0xFFB71C1C),
-            startAngle = 280f,
-            sweepAngle = 90f,
-            useCenter = true,
-            topLeft = Offset(helmetCenter.x - helmetRadius, helmetCenter.y - helmetRadius),
-            size = Size(helmetRadius * 2, helmetRadius * 2)
-        )
-        drawLine(
-            color = Color.White,
-            start = Offset(headX + 5f, headY - 18f),
-            end = Offset(headX + 16f, headY - 6f),
-            strokeWidth = 3f
-        )
-        drawLine(
-            color = Color.White,
-            start = Offset(headX + 1f, headY - 19f),
-            end = Offset(headX + 12f, headY - 11f),
-            strokeWidth = 2.5f
-        )
-
-        // White stars on the blue field
-        drawCircle(color = Color.White, center = Offset(headX - 6f, headY - 14f), radius = 1.8f)
-        drawCircle(color = Color.White, center = Offset(headX - 11f, headY - 9f), radius = 1.8f)
-        drawCircle(color = Color.White, center = Offset(headX - 2f, headY - 10f), radius = 1.8f)
-        drawCircle(color = Color.White, center = Offset(headX - 7f, headY - 6f), radius = 1.6f)
-
-        // Red Brim around helmet base
-        drawArc(
-            color = Color(0xFFB71C1C),
-            startAngle = 160f,
-            sweepAngle = 150f,
-            useCenter = false,
-            topLeft = Offset(helmetCenter.x - helmetRadius - 1f, helmetCenter.y - helmetRadius + 4f),
-            size = Size(helmetRadius * 2 + 2f, helmetRadius * 2),
-            style = Stroke(width = 4f)
-        )
-
-        // NVG mount bracket
-        drawRoundRect(
-            color = Color(0xFF263238),
-            topLeft = Offset(headX - 2f, headY - 15f),
-            size = Size(7f, 7f),
-            cornerRadius = CornerRadius(1.5f, 1.5f)
-        )
-
-        // GAS MASK GOGGLES: Glowing Neon Green Circular Lenses!
-        drawCircle(color = Color(0xFF1B2A22), center = Offset(headX - 4f, headY - 1f), radius = 6.5f)
-        drawCircle(color = Color(0xFF1B2A22), center = Offset(headX + 7f, headY - 1f), radius = 6.5f)
-
-        // Glowing Neon Green Lenses with Outer Halo
-        drawCircle(color = Color(0x4476FF03), center = Offset(headX - 4f, headY - 1f), radius = 8.5f)
-        drawCircle(color = Color(0x4476FF03), center = Offset(headX + 7f, headY - 1f), radius = 8.5f)
-        drawCircle(color = Color(0xFF76FF03), center = Offset(headX - 4f, headY - 1f), radius = 5.2f)
-        drawCircle(color = Color(0xFF76FF03), center = Offset(headX + 7f, headY - 1f), radius = 5.2f)
-        drawCircle(color = Color(0xFFCCFF90), center = Offset(headX - 5f, headY - 2.5f), radius = 2.2f)
-        drawCircle(color = Color(0xFFCCFF90), center = Offset(headX + 6f, headY - 2.5f), radius = 2.2f)
-
-        // Snout Filter Grill
-        drawRoundRect(
-            color = Color(0xFF193025),
-            topLeft = Offset(headX + 2f, headY + 5f),
-            size = Size(11f, 10f),
-            cornerRadius = CornerRadius(3f, 3f)
-        )
-        drawLine(color = Color(0xFF0F1E17), start = Offset(headX + 4f, headY + 7f), end = Offset(headX + 11f, headY + 7f), strokeWidth = 1.5f)
-        drawLine(color = Color(0xFF0F1E17), start = Offset(headX + 4f, headY + 10f), end = Offset(headX + 11f, headY + 10f), strokeWidth = 1.5f)
-        drawLine(color = Color(0xFF0F1E17), start = Offset(headX + 4f, headY + 13f), end = Offset(headX + 11f, headY + 13f), strokeWidth = 1.5f)
-
-        // Side Canister
-        drawCircle(color = Color(0xFF2E4E37), center = Offset(headX + 14f, headY + 8f), radius = 5.5f)
-        drawCircle(color = Color(0xFF193025), center = Offset(headX + 14f, headY + 8f), radius = 3.5f)
-
-        // Arms and Gun anchored directly to the soldier's hands and shoulder
+        // Arms and gun anchored directly to her hands and shoulder
         drawTacticalGun(gunAnchorX, gunAnchorY, aimAngle, engine.currentWeapon.type, engine.muzzleFlashTimer)
     }
 
@@ -297,7 +139,7 @@ object GameRenderer {
             // 1. Right Arm & Shoulder Stock (Anchored to body)
             // Tactical Camo Right Arm sleeve
             drawRoundRect(
-                color = Color(0xFF2E4E37),
+                color = Color(0xFF3A4733),
                 topLeft = Offset(anchorX - 14f, anchorY - 6f),
                 size = Size(14f, 10f),
                 cornerRadius = CornerRadius(3f, 3f)
@@ -334,10 +176,17 @@ object GameRenderer {
             // 3. Left Arm & Hand supporting weapon foregrip / barrel
             // Left tactical arm reaching forward
             drawLine(
-                color = Color(0xFF2E4E37),
+                color = Color(0xFF3A4733),
                 start = Offset(anchorX - 10f, anchorY + 5f),
                 end = Offset(anchorX + 16f, anchorY + 3f),
                 strokeWidth = 6f
+            )
+            // Bare forearm below the rolled sleeve
+            drawLine(
+                color = Color(0xFFC98E66),
+                start = Offset(anchorX + 6f, anchorY + 4f),
+                end = Offset(anchorX + 16f, anchorY + 3f),
+                strokeWidth = 4.4f
             )
             // Left Gloved Hand holding barrel/handguard
             drawCircle(
@@ -565,9 +414,6 @@ object GameRenderer {
 
     private fun DrawScope.drawZombie(z: Zombie, waterTop: Float) {
         val isHit = z.hitFlashTimer > 0f
-        val animOffset = sin(z.walkAnimTimer) * 4.5f
-        val legAnim = cos(z.walkAnimTimer) * 14f
-
         val zX = z.x
         val zY = z.y
 
@@ -583,9 +429,9 @@ object GameRenderer {
 
         // Glowing aura so bosses / brutes stand out in the dark
         if (z.type == ZombieType.COLOSSUS) {
-            drawEliteAura(zX, zY, w, Color(0xFFFF1744), sceneTime())
+            drawEliteAura(zX, zY, w, Color(0xFFB3261E), sceneTime())
         } else if (z.type == ZombieType.TANK) {
-            drawEliteAura(zX, zY, w, Color(0xFF76FF03), sceneTime())
+            drawEliteAura(zX, zY, w, Color(0xFF8E9A4A), sceneTime())
         }
 
         // Specialized non-humanoid zombies
@@ -601,342 +447,8 @@ object GameRenderer {
             return
         }
 
-        // Color palettes per zombie type
-        val skinColor = if (isHit) Color.White else when (z.type) {
-            ZombieType.WALKER -> Color(0xFF558B2F)
-            ZombieType.RUNNER -> Color(0xFF6D4C41)
-            ZombieType.SPITTER -> Color(0xFF689F38)
-            ZombieType.ARMORED -> Color(0xFF455A64)
-            ZombieType.TANK -> Color(0xFF37474F)
-            ZombieType.COLOSSUS -> Color(0xFF212121)
-            else -> Color(0xFF558B2F)
-        }
-
-        val skinShadowColor = if (isHit) Color.LightGray else when (z.type) {
-            ZombieType.WALKER -> Color(0xFF33691E)
-            ZombieType.RUNNER -> Color(0xFF4E342E)
-            ZombieType.SPITTER -> Color(0xFF33691E)
-            ZombieType.ARMORED -> Color(0xFF263238)
-            ZombieType.TANK -> Color(0xFF263238)
-            ZombieType.COLOSSUS -> Color(0xFF0D0D0D)
-            else -> Color(0xFF33691E)
-        }
-
-        val clothesColor = if (isHit) Color.White else when (z.type) {
-            ZombieType.WALKER -> Color(0xFF1976D2) // Tattered denim
-            ZombieType.RUNNER -> Color(0xFFC62828) // Shredded athletic red hoodie
-            ZombieType.SPITTER -> Color(0xFF33691E) // Swamp muck rags
-            ZombieType.ARMORED -> Color(0xFF1B2E24) // Tactical military camo
-            ZombieType.TANK -> Color(0xFF455A64) // Overalls
-            ZombieType.COLOSSUS -> Color(0xFF880E4F) // Warped demonic garments
-            else -> Color(0xFF1976D2)
-        }
-
-        // 1. Water Ripples & Wake
-        drawOval(
-            color = Color(0x6680CBC4),
-            topLeft = Offset(zX - w * 0.65f, zY - 8f),
-            size = Size(w * 1.3f, 12f),
-            style = Stroke(width = 2.2f)
-        )
-        drawOval(
-            color = Color(0x334DB6AC),
-            topLeft = Offset(zX - w * 0.8f, zY - 11f),
-            size = Size(w * 1.6f, 16f),
-            style = Stroke(width = 1.4f)
-        )
-        // Splash water droplets
-        val splashX = zX + (sin(z.walkAnimTimer * 3f) * 12f)
-        drawCircle(color = Color(0x88B2DFDB), center = Offset(splashX, zY - 3f), radius = 2.5f)
-
-        // 2. Legs & Feet
-        val hipY = zY - h * 0.36f
-        val legStroke = if (z.type == ZombieType.COLOSSUS) 18f else if (z.type == ZombieType.TANK) 14f else 7.5f
-
-        // Back leg
-        drawLine(
-            color = clothesColor,
-            start = Offset(zX + w * 0.16f, hipY),
-            end = Offset(zX + w * 0.16f + legAnim, zY),
-            strokeWidth = legStroke,
-            cap = StrokeCap.Round
-        )
-        // Back foot muddy boot
-        drawRect(
-            color = Color(0xFF1B1B1B),
-            topLeft = Offset(zX + w * 0.16f + legAnim - 6f, zY - 4f),
-            size = Size(10f, 5f)
-        )
-
-        // Front leg
-        drawLine(
-            color = clothesColor,
-            start = Offset(zX - w * 0.16f, hipY),
-            end = Offset(zX - w * 0.16f - legAnim, zY),
-            strokeWidth = legStroke,
-            cap = StrokeCap.Round
-        )
-        // Front foot muddy boot
-        drawRect(
-            color = Color(0xFF1B1B1B),
-            topLeft = Offset(zX - w * 0.16f - legAnim - 8f, zY - 4f),
-            size = Size(12f, 5f)
-        )
-
-        // 3. Torso & Upper Body
-        val torsoY = zY - h * 0.74f + animOffset
-        val torsoH = h * 0.42f
-        val torsoW = w * 0.72f
-
-        // Base torso
-        drawRoundRect(
-            color = clothesColor,
-            topLeft = Offset(zX - torsoW / 2f, torsoY),
-            size = Size(torsoW, torsoH),
-            cornerRadius = CornerRadius(5f, 5f)
-        )
-
-        // Shading on back of torso
-        drawRoundRect(
-            color = Color(0x33000000),
-            topLeft = Offset(zX + torsoW * 0.1f, torsoY),
-            size = Size(torsoW * 0.4f, torsoH),
-            cornerRadius = CornerRadius(4f, 4f)
-        )
-
-        // Exposed decayed chest/ribs or armor details
-        if (z.type == ZombieType.WALKER && !isHit) {
-            // Torn shirt revealing rotting green ribs
-            drawRect(
-                color = skinShadowColor,
-                topLeft = Offset(zX - torsoW * 0.35f, torsoY + 6f),
-                size = Size(torsoW * 0.4f, torsoH * 0.6f)
-            )
-            // Exposed bone ribs
-            drawLine(color = Color(0xFFFFF9C4), start = Offset(zX - torsoW * 0.32f, torsoY + 10f), end = Offset(zX - torsoW * 0.05f, torsoY + 10f), strokeWidth = 2f)
-            drawLine(color = Color(0xFFFFF9C4), start = Offset(zX - torsoW * 0.32f, torsoY + 16f), end = Offset(zX - torsoW * 0.08f, torsoY + 16f), strokeWidth = 2f)
-            drawLine(color = Color(0xFFFFF9C4), start = Offset(zX - torsoW * 0.30f, torsoY + 22f), end = Offset(zX - torsoW * 0.10f, torsoY + 22f), strokeWidth = 2f)
-        }
-
-        // Armored: Kevlar vest with silver steel rivets & tactical plate
-        if (z.type == ZombieType.ARMORED && !isHit) {
-            drawRoundRect(
-                color = Color(0xFF263238),
-                topLeft = Offset(zX - torsoW * 0.48f, torsoY + 2f),
-                size = Size(torsoW * 0.96f, torsoH * 0.88f),
-                cornerRadius = CornerRadius(4f, 4f)
-            )
-            // Tactical ceramic plate
-            drawRoundRect(
-                color = Color(0xFF37474F),
-                topLeft = Offset(zX - torsoW * 0.35f, torsoY + 8f),
-                size = Size(torsoW * 0.7f, torsoH * 0.55f),
-                cornerRadius = CornerRadius(3f, 3f)
-            )
-            // Silver rivets
-            drawCircle(color = Color(0xFFCFD8DC), center = Offset(zX - torsoW * 0.25f, torsoY + 10f), radius = 1.5f)
-            drawCircle(color = Color(0xFFCFD8DC), center = Offset(zX + torsoW * 0.25f, torsoY + 10f), radius = 1.5f)
-            drawCircle(color = Color(0xFFCFD8DC), center = Offset(zX - torsoW * 0.25f, torsoY + torsoH * 0.55f), radius = 1.5f)
-            drawCircle(color = Color(0xFFCFD8DC), center = Offset(zX + torsoW * 0.25f, torsoY + torsoH * 0.55f), radius = 1.5f)
-        }
-
-        // Spitter: Glowing toxic pustules
-        if (z.type == ZombieType.SPITTER && !isHit) {
-            drawCircle(color = Color(0x6676FF03), center = Offset(zX + torsoW * 0.25f, torsoY + 8f), radius = 9f)
-            drawCircle(color = Color(0xFF76FF03), center = Offset(zX + torsoW * 0.25f, torsoY + 8f), radius = 6f)
-            drawCircle(color = Color(0xFFCCFF90), center = Offset(zX + torsoW * 0.22f, torsoY + 6f), radius = 2.5f)
-
-            drawCircle(color = Color(0xFF64DD17), center = Offset(zX - 2f, torsoY + 16f), radius = 4.5f)
-            drawCircle(color = Color(0xFFCCFF90), center = Offset(zX - 3f, torsoY + 15f), radius = 1.8f)
-        }
-
-        // Tank / Colossus: Mutated bulging veins & bone spikes
-        if ((z.type == ZombieType.TANK || z.type == ZombieType.COLOSSUS) && !isHit) {
-            // Shoulder bone spikes
-            drawLine(
-                color = Color(0xFFE0E0E0),
-                start = Offset(zX + torsoW * 0.45f, torsoY + 4f),
-                end = Offset(zX + torsoW * 0.65f, torsoY - 8f),
-                strokeWidth = 4f,
-                cap = StrokeCap.Round
-            )
-            // Toxic mutant veins
-            val veinColor = if (z.type == ZombieType.COLOSSUS) Color(0xFFFF1744) else Color(0xFF76FF03)
-            drawLine(color = veinColor, start = Offset(zX - torsoW * 0.2f, torsoY + 8f), end = Offset(zX + torsoW * 0.1f, torsoY + 16f), strokeWidth = 2.2f)
-            drawLine(color = veinColor, start = Offset(zX + torsoW * 0.1f, torsoY + 16f), end = Offset(zX - torsoW * 0.1f, torsoY + 26f), strokeWidth = 1.8f)
-        }
-
-        // Fresh wounds appear as the zombie takes damage
-        if (!isHit && z.currentHp < z.maxHp * 0.6f) {
-            val wound = Color(0xFF7B0D12)
-            drawLine(wound, Offset(zX - torsoW * 0.1f, torsoY + 4f), Offset(zX + torsoW * 0.22f, torsoY + 15f), 3f, StrokeCap.Round)
-            drawCircle(Color(0xFFB71C1C), 2.4f, Offset(zX + torsoW * 0.22f, torsoY + 15f))
-            if (z.currentHp < z.maxHp * 0.3f) {
-                drawLine(wound, Offset(zX - torsoW * 0.3f, torsoY + torsoH * 0.55f), Offset(zX + torsoW * 0.05f, torsoY + torsoH * 0.8f), 3.2f, StrokeCap.Round)
-                drawCircle(Color(0xFFB71C1C), 2.8f, Offset(zX - torsoW * 0.3f, torsoY + torsoH * 0.55f))
-            }
-        }
-
-        // 4. Arms & Claws
-        val armY = torsoY + 8f
-        val armStroke = if (z.type == ZombieType.COLOSSUS) 15f else if (z.type == ZombieType.TANK) 11f else 6.5f
-
-        if (z.isAttacking) {
-            // Ferocious double-handed swiping attack animation!
-            val attackSwipe = sin(System.currentTimeMillis() * 0.012f) * 12f
-            // Front arm clawing forward
-            drawLine(
-                color = skinColor,
-                start = Offset(zX - torsoW * 0.2f, armY),
-                end = Offset(zX - torsoW * 0.6f - 24f + attackSwipe, armY + 4f),
-                strokeWidth = armStroke,
-                cap = StrokeCap.Round
-            )
-            // Claw hand
-            drawCircle(color = skinColor, center = Offset(zX - torsoW * 0.6f - 25f + attackSwipe, armY + 4f), radius = armStroke * 0.55f)
-            drawLine(color = Color(0xFF212121), start = Offset(zX - torsoW * 0.6f - 25f + attackSwipe, armY + 2f), end = Offset(zX - torsoW * 0.6f - 31f + attackSwipe, armY + 1f), strokeWidth = 2f)
-            drawLine(color = Color(0xFF212121), start = Offset(zX - torsoW * 0.6f - 25f + attackSwipe, armY + 5f), end = Offset(zX - torsoW * 0.6f - 32f + attackSwipe, armY + 5f), strokeWidth = 2f)
-
-            // Back arm clawing
-            drawLine(
-                color = skinShadowColor,
-                start = Offset(zX + torsoW * 0.1f, armY + 4f),
-                end = Offset(zX - torsoW * 0.4f - 18f - attackSwipe, armY - 4f),
-                strokeWidth = armStroke * 0.85f,
-                cap = StrokeCap.Round
-            )
-        } else {
-            // Shambling / lunging arms
-            val armBob = sin(z.walkAnimTimer * 2f) * 5f
-            val reach = if (z.type == ZombieType.RUNNER) 24f else 18f
-            // Front reaching arm
-            drawLine(
-                color = skinColor,
-                start = Offset(zX - torsoW * 0.2f, armY),
-                end = Offset(zX - torsoW * 0.5f - reach, armY + armBob),
-                strokeWidth = armStroke,
-                cap = StrokeCap.Round
-            )
-            // Claw fingertips
-            drawCircle(color = skinColor, center = Offset(zX - torsoW * 0.5f - reach, armY + armBob), radius = armStroke * 0.5f)
-            drawLine(
-                color = Color(0xFF212121),
-                start = Offset(zX - torsoW * 0.5f - reach, armY + armBob),
-                end = Offset(zX - torsoW * 0.5f - reach - 5f, armY + armBob),
-                strokeWidth = 2f
-            )
-
-            // Back trailing arm
-            drawLine(
-                color = skinShadowColor,
-                start = Offset(zX + torsoW * 0.2f, armY + 3f),
-                end = Offset(zX - torsoW * 0.2f - reach * 0.6f, armY + 6f - armBob),
-                strokeWidth = armStroke * 0.85f,
-                cap = StrokeCap.Round
-            )
-        }
-
-        // 5. Head & Grotesque Face
-        val headRadius = if (z.type == ZombieType.COLOSSUS) 22f else if (z.type == ZombieType.TANK) 17f else 12f
-        val headLean = if (z.type == ZombieType.RUNNER) 10f else 3f
-        val headX = zX - headLean
-        val headY = torsoY - headRadius + 2f
-
-        // Head base
-        drawCircle(
-            color = skinColor,
-            center = Offset(headX, headY),
-            radius = headRadius
-        )
-
-        // Head shadow contour
-        drawArc(
-            color = skinShadowColor,
-            startAngle = 270f,
-            sweepAngle = 180f,
-            useCenter = false,
-            topLeft = Offset(headX - headRadius, headY - headRadius),
-            size = Size(headRadius * 2, headRadius * 2),
-            style = Stroke(width = 2.5f)
-        )
-
-        // Helmet for Armored Zombie
-        if (z.type == ZombieType.ARMORED && !isHit) {
-            drawArc(
-                color = Color(0xFF1B2E24),
-                startAngle = 160f,
-                sweepAngle = 220f,
-                useCenter = true,
-                topLeft = Offset(headX - headRadius - 3f, headY - headRadius - 4f),
-                size = Size((headRadius + 3f) * 2, (headRadius + 3f) * 2)
-            )
-            // Visor rim & glass reflection
-            drawLine(
-                color = Color(0xFF37474F),
-                start = Offset(headX - headRadius - 2f, headY),
-                end = Offset(headX - 1f, headY + 2f),
-                strokeWidth = 3f
-            )
-            drawRect(
-                color = Color(0x664FC3F7),
-                topLeft = Offset(headX - headRadius * 0.8f, headY - 2f),
-                size = Size(headRadius * 0.65f, 4f)
-            )
-        }
-
-        // Hair strands (sparse rotten hair)
-        if (z.type != ZombieType.ARMORED && !isHit) {
-            val hairColor = Color(0xFF263238)
-            drawLine(color = hairColor, start = Offset(headX - 4f, headY - headRadius), end = Offset(headX - 9f, headY - headRadius + 4f), strokeWidth = 2f)
-            drawLine(color = hairColor, start = Offset(headX + 2f, headY - headRadius), end = Offset(headX + 5f, headY - headRadius + 6f), strokeWidth = 2.2f)
-            drawLine(color = hairColor, start = Offset(headX + 7f, headY - headRadius * 0.7f), end = Offset(headX + 11f, headY - headRadius * 0.2f), strokeWidth = 1.8f)
-        }
-
-        // Gaping rotten mouth cavity
-        val mouthX = headX - headRadius * 0.8f
-        val mouthY = headY + headRadius * 0.25f
-        val mouthW = headRadius * 0.75f
-        val mouthH = headRadius * 0.55f
-
-        drawRoundRect(
-            color = Color(0xFF1A0A0A),
-            topLeft = Offset(mouthX, mouthY),
-            size = Size(mouthW, mouthH),
-            cornerRadius = CornerRadius(2f, 2f)
-        )
-        // Sharp crooked teeth
-        drawLine(color = Color(0xFFFFF9C4), start = Offset(mouthX + 2f, mouthY), end = Offset(mouthX + 2f, mouthY + 3.5f), strokeWidth = 1.8f)
-        drawLine(color = Color(0xFFFFF9C4), start = Offset(mouthX + 6f, mouthY), end = Offset(mouthX + 6f, mouthY + 4f), strokeWidth = 1.8f)
-        drawLine(color = Color(0xFFFFF9C4), start = Offset(mouthX + 3.5f, mouthY + mouthH), end = Offset(mouthX + 3.5f, mouthY + mouthH - 3.5f), strokeWidth = 1.8f)
-
-        // Spitter acidic drool
-        if (z.type == ZombieType.SPITTER && !isHit) {
-            drawLine(
-                color = Color(0xFF76FF03),
-                start = Offset(mouthX + 2f, mouthY + mouthH),
-                end = Offset(mouthX + 1f, mouthY + mouthH + 8f + sin(z.walkAnimTimer * 4f) * 3f),
-                strokeWidth = 2.2f
-            )
-        }
-
-        // Terrifying asymmetrical Eyes!
-        val eyeColor = when (z.type) {
-            ZombieType.RUNNER -> Color(0xFFFF1744)
-            ZombieType.SPITTER -> Color(0xFF76FF03)
-            ZombieType.COLOSSUS -> Color(0xFFFF1744)
-            else -> Color(0xFFFFEB3B)
-        }
-
-        // Left eye (bulging, glowing)
-        val eyeCenterX = headX - headRadius * 0.42f
-        val eyeCenterY = headY - headRadius * 0.15f
-        glow(eyeCenterX, eyeCenterY, 11f, eyeColor.copy(alpha = 0.55f))
-        drawCircle(color = eyeColor, center = Offset(eyeCenterX, eyeCenterY), radius = 2.8f)
-        drawCircle(color = Color(0xFF1B0000), center = Offset(eyeCenterX - 0.7f, eyeCenterY), radius = 1.2f)
-
-        // Right eye (sunken, darkened hollow socket)
-        drawCircle(color = Color(0xFF1A1A1A), center = Offset(headX + 2f, eyeCenterY + 1f), radius = 2.2f)
-
+        // Everything human-shaped lives in ZombieRenderer.kt
+        drawHumanoidZombie(z, isHit, sceneTime())
         drawZombieHpBar(z)
     }
 
