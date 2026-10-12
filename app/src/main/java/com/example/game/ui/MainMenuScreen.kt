@@ -1,28 +1,60 @@
 package com.example.game.ui
 
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import com.example.R
 import com.example.game.data.LeaderboardRepository
+
+private val BONE = Color(0xFFE9E0C8)
+private val BONE_DIM = Color(0xFFB8B09A)
+private val LAMP = Color(0xFFC9A55B)
+private val INK = Color(0xFF2B1D12)
 
 @Composable
 fun MainMenuScreen(
@@ -34,237 +66,298 @@ fun MainMenuScreen(
     var showHowToPlay by remember { mutableStateOf(false) }
     val bestSeconds = remember { repository.getBestSurvivalTimeSeconds() }
     val formattedBest = remember(bestSeconds) {
-        val m = bestSeconds / 60
-        val s = bestSeconds % 60
-        "%02d:%02d".format(m, s)
+        "%02d:%02d".format(bestSeconds / 60, bestSeconds % 60)
+    }
+
+    // The scene is animated, so redraw every frame
+    var frame by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            withFrameNanos { frame = it }
+        }
     }
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        Color(0xFF07120E),
-                        Color(0xFF0D1E17),
-                        Color(0xFF142B20)
-                    )
-                )
-            )
-            .padding(16.dp)
+            .background(Color(0xFF050C0A))
     ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            @Suppress("UNUSED_VARIABLE")
+            val tick = frame
+            drawMenuScene(size.width, size.height)
+        }
+
         Column(
             modifier = Modifier
-                .align(Alignment.Center)
-                .fillMaxWidth(0.92f),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .align(Alignment.CenterStart)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(start = 28.dp, end = 28.dp, top = 18.dp, bottom = 18.dp),
             verticalArrangement = Arrangement.Center
         ) {
-            // Header with Soldier Graphic and Game Title Badge
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // Hero soldier avatar from drawable
-                Surface(
-                    shape = RoundedCornerShape(18.dp),
-                    border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF76FF03)),
-                    shadowElevation = 8.dp,
-                    modifier = Modifier.size(80.dp)
-                ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.hero_soldier_1791571690568),
-                        contentDescription = "Héroe con máscara y casco USA",
-                        modifier = Modifier.fillMaxSize()
+            Column(modifier = Modifier.widthIn(max = 340.dp)) {
+                Text(
+                    text = "NOCHE EN EL BAYOU",
+                    style = TextStyle(
+                        fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp,
+                        letterSpacing = 3.sp,
+                        color = LAMP
                     )
-                }
-
-                // Game Title Badge
-                Surface(
-                    color = Color(0xFF1B3325),
-                    shape = RoundedCornerShape(18.dp),
-                    border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF4CAF50)),
-                    shadowElevation = 8.dp
-                ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 22.dp, vertical = 12.dp),
-                        horizontalAlignment = Alignment.Start
-                    ) {
-                        Text(
-                            text = "SWAMP ZOMBIE",
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.Black,
-                            color = Color(0xFFFFD54F),
-                            letterSpacing = 1.5.sp
-                        )
-                        Text(
-                            text = "DEFENSA MARATÓN 1H+",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = Color(0xFFA5D6A7),
-                            letterSpacing = 1.2.sp
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Best record banner
-            if (bestSeconds > 0) {
-                Surface(
-                    color = Color(0x99182D22),
-                    shape = RoundedCornerShape(12.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFD700))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.EmojiEvents,
-                            contentDescription = "Récord",
-                            tint = Color(0xFFFFD700),
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Text(
-                            text = "Tu Mejor Marca: $formattedBest",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-            } else {
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-
-            // Buttons
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                // Play Button
-                Button(
-                    onClick = onStartGame,
-                    modifier = Modifier
-                        .weight(1.4f)
-                        .height(54.dp)
-                        .testTag("menu_start_button"),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
-                    shape = RoundedCornerShape(16.dp),
-                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Jugar",
-                        modifier = Modifier.size(26.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "¡JUGAR RUN!",
-                        fontSize = 16.sp,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "SWAMP\nZOMBIE",
+                    modifier = Modifier.rotate(-2f),
+                    style = TextStyle(
+                        fontFamily = FontFamily.Serif,
                         fontWeight = FontWeight.Black,
-                        color = Color.White
+                        fontSize = 54.sp,
+                        lineHeight = 50.sp,
+                        letterSpacing = 1.sp,
+                        color = BONE,
+                        shadow = Shadow(color = Color(0xFF3A0F0A), offset = Offset(4f, 5f), blurRadius = 0f)
                     )
-                }
-
-                // Leaderboard Button
-                OutlinedButton(
-                    onClick = onOpenLeaderboard,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(54.dp)
-                        .testTag("menu_leaderboard_button"),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFFD54F)),
-                    border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFFFB300))
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Leaderboard,
-                        contentDescription = "Récords",
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "RÉCORDS",
+                )
+                // rough brush stroke under the title
+                Spacer(
+                    Modifier
+                        .padding(top = 6.dp)
+                        .fillMaxWidth(0.78f)
+                        .height(8.dp)
+                        .drawBehind {
+                            val p = Path().apply {
+                                moveTo(0f, size.height * 0.6f)
+                                cubicTo(
+                                    size.width * 0.25f, size.height * 0.1f,
+                                    size.width * 0.6f, size.height * 1.0f,
+                                    size.width, size.height * 0.35f
+                                )
+                            }
+                            drawPath(p, Color(0xFF8A3A1F), style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round))
+                        }
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "Defiende la cabaña. Aguanta hasta el amanecer.",
+                    style = TextStyle(
+                        fontFamily = FontFamily.Serif,
+                        fontStyle = FontStyle.Italic,
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold
+                        color = BONE_DIM
                     )
-                }
+                )
 
-                // How to play button
-                IconButton(
+                Spacer(Modifier.height(20.dp))
+
+                PlankButton(
+                    text = "JUGAR",
+                    tag = "menu_start_button",
+                    onClick = onStartGame,
+                    tilt = -1.2f,
+                    primary = true,
+                    seed = 1
+                )
+                Spacer(Modifier.height(10.dp))
+                PlankButton(
+                    text = "RÉCORDS",
+                    tag = "menu_leaderboard_button",
+                    onClick = onOpenLeaderboard,
+                    tilt = 0.8f,
+                    seed = 2
+                )
+                Spacer(Modifier.height(10.dp))
+                PlankButton(
+                    text = "CÓMO SOBREVIVIR",
+                    tag = "menu_help_button",
                     onClick = { showHowToPlay = true },
-                    modifier = Modifier
-                        .size(54.dp)
-                        .background(Color(0xFF263238), RoundedCornerShape(16.dp))
-                        .border(1.5.dp, Color(0xFF546E7A), RoundedCornerShape(16.dp))
-                        .testTag("menu_help_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.HelpOutline,
-                        contentDescription = "Cómo jugar",
-                        tint = Color.White,
-                        modifier = Modifier.size(24.dp)
+                    tilt = -0.5f,
+                    seed = 3
+                )
+
+                Spacer(Modifier.height(16.dp))
+                if (bestSeconds > 0) {
+                    Text(
+                        text = "MEJOR MARCA  $formattedBest",
+                        style = TextStyle(
+                            fontFamily = FontFamily.Serif,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            letterSpacing = 2.sp,
+                            color = LAMP
+                        )
                     )
+                    Spacer(Modifier.height(4.dp))
                 }
+                Text(
+                    text = "Toca o arrastra sobre el pantano para disparar.",
+                    style = TextStyle(
+                        fontFamily = FontFamily.Serif,
+                        fontStyle = FontStyle.Italic,
+                        fontSize = 11.sp,
+                        color = BONE_DIM.copy(alpha = 0.75f)
+                    )
+                )
             }
         }
 
-        // How to play dialog
         if (showHowToPlay) {
             Dialog(onDismissRequest = { showHowToPlay = false }) {
-                Surface(
-                    shape = RoundedCornerShape(18.dp),
-                    color = Color(0xFF14241B),
-                    border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF2E7D32)),
-                    modifier = Modifier.fillMaxWidth(0.92f)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.96f)
+                        .rotate(-0.6f)
+                        .drawBehind { drawPaperNote() }
+                        .padding(horizontal = 24.dp, vertical = 26.dp)
                 ) {
                     Column(
-                        modifier = Modifier.padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        modifier = Modifier.verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(9.dp)
                     ) {
                         Text(
-                            text = "GUÍA DE COMBATE Y SUPERVIVENCIA",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Black,
-                            color = Color(0xFFFFD54F)
+                            text = "CÓMO SOBREVIVIR",
+                            style = TextStyle(
+                                fontFamily = FontFamily.Serif,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 20.sp,
+                                letterSpacing = 1.sp,
+                                color = INK
+                            )
                         )
-
-                        Text(
-                            text = "• Recarga Automática: Tu personaje recarga sus armas automáticamente cuando dejas de disparar.",
-                            fontSize = 12.sp,
-                            color = Color.White
-                        )
-                        Text(
-                            text = "• 8 Tipos de Zombis: Caminantes, Veloces, Perros Rabiosos, Zombis Tóxicos con ácido, Soldados Blindados (resistentes a balas), Caimanes del Pantano, Brutos y Megatitanes Boss cada 5 oleadas.",
-                            fontSize = 12.sp,
-                            color = Color.White
-                        )
-                        Text(
-                            text = "• Mejoras de Nivel 10: Sube de nivel tus armas hasta nivel 10, repara la barricada, instala torretas centinela en el techo y lanza cócteles Molotov incendiarios.",
-                            fontSize = 12.sp,
-                            color = Color.White
-                        )
-                        Text(
-                            text = "• Partidas Largas (1 Hora+): La curva de oleadas continuas te permite resistir carreras maratónicas para alcanzar récords históricos.",
-                            fontSize = 12.sp,
-                            color = Color(0xFFA5D6A7)
-                        )
-
-                        Button(
-                            onClick = { showHowToPlay = false },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("¡A LA BATALLA!")
+                        listOf(
+                            "Toca o arrastra sobre el pantano. Mara apunta hacia tu dedo y dispara mientras lo mantengas.",
+                            "Si dejas de disparar un momento, el arma se recarga sola.",
+                            "El botón de fuego, abajo a la izquierda, lanza un molotov al grupo más grande de zombis.",
+                            "Cada baja da monedas. Gástalas en la armería: armas, mejoras, reparar la barricada y una torreta en el techo.",
+                            "Hay caimanes, perros, zombis blindados y brutos. Cada cinco oleadas llega un jefe."
+                        ).forEach { line ->
+                            Text(
+                                text = "—  $line",
+                                style = TextStyle(
+                                    fontFamily = FontFamily.Serif,
+                                    fontSize = 13.sp,
+                                    lineHeight = 18.sp,
+                                    color = Color(0xFF3A2A1B)
+                                )
+                            )
                         }
+                        Spacer(Modifier.height(4.dp))
+                        PlankButton(
+                            text = "ENTENDIDO",
+                            tag = "menu_help_close",
+                            onClick = { showHowToPlay = false },
+                            tilt = 0.5f,
+                            primary = true,
+                            seed = 4
+                        )
                     }
                 }
             }
         }
     }
+}
+
+/** Wooden plank with grain, a knot, nails and a slight tilt. Sinks a little when pressed. */
+@Composable
+private fun PlankButton(
+    text: String,
+    tag: String,
+    onClick: () -> Unit,
+    tilt: Float,
+    seed: Int,
+    primary: Boolean = false
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+
+    Box(
+        modifier = Modifier
+            .testTag(tag)
+            .fillMaxWidth()
+            .rotate(tilt)
+            .offset(y = if (pressed) 2.dp else 0.dp)
+            .height(if (primary) 58.dp else 46.dp)
+            .drawBehind { drawPlank(pressed, primary, seed) }
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(start = if (primary) 30.dp else 26.dp),
+            style = TextStyle(
+                fontFamily = FontFamily.Serif,
+                fontWeight = FontWeight.Black,
+                fontSize = if (primary) 22.sp else 16.sp,
+                letterSpacing = 2.sp,
+                color = if (pressed) BONE_DIM else BONE,
+                shadow = Shadow(color = Color(0xCC140D08), offset = Offset(2f, 2f), blurRadius = 0f)
+            )
+        )
+    }
+}
+
+private fun DrawScope.drawPlank(pressed: Boolean, primary: Boolean, seed: Int) {
+    val base = if (primary) Color(0xFF6A3F25) else Color(0xFF4A3524)
+    val top = lerp(base, Color.White, if (pressed) 0.02f else 0.10f)
+    val bottom = lerp(base, Color.Black, 0.30f)
+    val r = CornerRadius(4.dp.toPx(), 4.dp.toPx())
+
+    // drop shadow
+    drawRoundRect(Color(0x66000000), Offset(3f, if (pressed) 3f else 6f), size, r)
+    // wood body
+    drawRoundRect(Brush.verticalGradient(listOf(top, base, bottom)), size = size, cornerRadius = r)
+
+    // grain lines
+    for (i in 0 until 8) {
+        val y = size.height * (0.10f + 0.11f * i) + hash01(seed * 10 + i, 1f) * 3f
+        val x0 = hash01(seed * 10 + i, 2f) * size.width * 0.12f
+        val x1 = size.width * (0.5f + hash01(seed * 10 + i, 3f) * 0.5f)
+        drawLine(Color(0x2E000000), Offset(x0, y), Offset(x1, y + (hash01(seed * 10 + i, 4f) - 0.5f) * 3.5f), 1.2f)
+    }
+    // knot
+    val kx = size.width * (0.55f + hash01(seed, 5f) * 0.3f)
+    val ky = size.height * (0.35f + hash01(seed, 6f) * 0.3f)
+    drawOval(Color(0x44000000), Offset(kx - 6f, ky - 4f), Size(12f, 8f))
+    drawOval(Color(0x33000000), Offset(kx - 9f, ky - 6.5f), Size(18f, 13f), style = Stroke(1f))
+
+    // worn top edge
+    drawLine(Color(0x22FFFFFF), Offset(5f, 2f), Offset(size.width - 5f, 2f), 1.5f)
+
+    // painted rust stripe on the primary plank
+    if (primary) {
+        drawRect(Color(0xFFB4491F), Offset(10.dp.toPx(), 8.dp.toPx()), Size(4.dp.toPx(), size.height - 16.dp.toPx()))
+    }
+
+    // nails
+    val nailY = size.height / 2f
+    val nailXs = floatArrayOf(10.dp.toPx() + (if (primary) 10.dp.toPx() else 0f), size.width - 12.dp.toPx())
+    for (nx in nailXs) {
+        drawCircle(Color(0xFF16100B), 3.2f, Offset(nx, nailY))
+        drawCircle(Color(0xFF857B6D), 1.3f, Offset(nx - 0.7f, nailY - 0.8f))
+    }
+
+    // dark outline
+    drawRoundRect(Color(0xAA140D08), size = size, cornerRadius = r, style = Stroke(1.6f))
+}
+
+private fun DrawScope.drawPaperNote() {
+    val r = CornerRadius(3.dp.toPx(), 3.dp.toPx())
+    drawRoundRect(Color(0x66000000), Offset(4f, 6f), size, r)
+    drawRoundRect(
+        Brush.verticalGradient(listOf(Color(0xFFDDD1B3), Color(0xFFCFC2A2))),
+        size = size,
+        cornerRadius = r
+    )
+    // stains and fold marks
+    drawOval(Color(0x22704A22), Offset(size.width * 0.62f, size.height * 0.10f), Size(size.width * 0.3f, size.height * 0.18f))
+    drawOval(Color(0x1A704A22), Offset(size.width * 0.08f, size.height * 0.72f), Size(size.width * 0.22f, size.height * 0.14f))
+    drawLine(Color(0x22000000), Offset(0f, size.height * 0.5f), Offset(size.width, size.height * 0.5f), 1.2f)
+    drawLine(Color(0x14FFFFFF), Offset(0f, size.height * 0.5f + 1.5f), Offset(size.width, size.height * 0.5f + 1.5f), 1.2f)
+    // tape on the top corners
+    val tape = Color(0xAAB9A877)
+    drawRect(tape, Offset(-6f, -4f), Size(46f, 16f))
+    drawRect(tape, Offset(size.width - 40f, -4f), Size(46f, 16f))
+    drawRoundRect(Color(0x55342414), size = size, cornerRadius = r, style = Stroke(1.2f))
 }
