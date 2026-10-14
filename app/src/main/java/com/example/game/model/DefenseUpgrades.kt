@@ -40,16 +40,16 @@ class DefenseUpgrades(
         get() = (800L - (turretLevel - 1) * 80L).coerceAtLeast(350L)
 
     val maxHpUpgradeCost: Int
-        get() = 50 * maxHouseHpLevel
+        get() = 70 * maxHouseHpLevel
 
     val barbedWireUpgradeCost: Int
-        get() = (barbedWireLevel + 1) * 75
+        get() = (barbedWireLevel + 1) * 100
 
     val turretUpgradeCost: Int
-        get() = (turretLevel + 1) * 150
+        get() = (turretLevel + 1) * 200
 
-    val molotovBuyCost: Int = 45
+    val molotovBuyCost: Int = 70
 
-    val repairHpCost: Int = 30 // for +50 HP repair
-    val fullRepairCost: Int = 75
+    val repairHpCost: Int = 45 // for +50 HP repair
+    val fullRepairCost: Int = 110
 }

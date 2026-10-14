@@ -18,7 +18,7 @@ enum class WeaponType(
 ) {
     PISTOL(
         title = "Pistola Táctica",
-        description = "Arma básica confiable con munición infinita en reserva.",
+        description = "Arma básica y confiable. Cuida cada bala: ya no hay munición infinita.",
         baseDamage = 26f,
         baseCooldownMs = 360L,
         baseMagazineSize = 12,
@@ -33,7 +33,7 @@ enum class WeaponType(
         baseCooldownMs = 520L,
         baseMagazineSize = 6,
         baseReloadTimeMs = 1300L,
-        unlockCost = 40,
+        unlockCost = 60,
         projectileSpeed = 1750f
     ),
     SHOTGUN(
@@ -43,7 +43,7 @@ enum class WeaponType(
         baseCooldownMs = 650L,
         baseMagazineSize = 8,
         baseReloadTimeMs = 1600L,
-        unlockCost = 80,
+        unlockCost = 120,
         projectileSpeed = 1450f
     ),
     RIFLE(
@@ -53,7 +53,7 @@ enum class WeaponType(
         baseCooldownMs = 110L,
         baseMagazineSize = 35,
         baseReloadTimeMs = 1800L,
-        unlockCost = 150,
+        unlockCost = 210,
         projectileSpeed = 1850f
     ),
     FLAMETHROWER(
@@ -63,7 +63,7 @@ enum class WeaponType(
         baseCooldownMs = 80L,
         baseMagazineSize = 50,
         baseReloadTimeMs = 2000L,
-        unlockCost = 220,
+        unlockCost = 300,
         projectileSpeed = 1200f
     ),
     LAUNCHER(
@@ -73,7 +73,7 @@ enum class WeaponType(
         baseCooldownMs = 1200L,
         baseMagazineSize = 5,
         baseReloadTimeMs = 2400L,
-        unlockCost = 320,
+        unlockCost = 420,
         projectileSpeed = 1150f
     ),
     MINIGUN(
@@ -83,7 +83,7 @@ enum class WeaponType(
         baseCooldownMs = 70L,
         baseMagazineSize = 80,
         baseReloadTimeMs = 2600L,
-        unlockCost = 420,
+        unlockCost = 560,
         projectileSpeed = 1950f
     ),
     SNIPER(
@@ -93,7 +93,7 @@ enum class WeaponType(
         baseCooldownMs = 1400L,
         baseMagazineSize = 4,
         baseReloadTimeMs = 2100L,
-        unlockCost = 500,
+        unlockCost = 650,
         projectileSpeed = 2200f
     )
 }
@@ -106,6 +106,9 @@ class Weapon(
     var isUnlocked by mutableStateOf(initialUnlocked)
     var level by mutableIntStateOf(initialLevel)
     var currentAmmo by mutableIntStateOf(type.baseMagazineSize)
+
+    /** Spare rounds in her pockets. Only the ammo runner (or a fresh run) refills this. */
+    var reserveAmmo by mutableIntStateOf(type.baseMagazineSize * Balance.START_RESERVE_MAGS)
     var isReloading by mutableStateOf(false)
     var reloadProgress by mutableFloatStateOf(0f)
     var lastFireTime: Long = 0L
@@ -122,6 +125,34 @@ class Weapon(
             WeaponType.SNIPER -> 1
         }
 
+    /** The most spare rounds she can carry for this weapon. */
+    val maxReserve: Int
+        get() = maxAmmo * Balance.MAX_RESERVE_MAGS
+
+    val reserveSpace: Int
+        get() = (maxReserve - reserveAmmo).coerceAtLeast(0)
+
+    /** Adds spare rounds up to the pocket limit and returns how many actually fit. */
+    fun addReserve(amount: Int): Int {
+        val added = amount.coerceAtLeast(0).coerceAtMost(reserveSpace)
+        reserveAmmo += added
+        return added
+    }
+
+    /** Moves rounds from the reserve into the magazine. Returns how many were loaded. */
+    fun finishReload(): Int {
+        val loaded = (maxAmmo - currentAmmo).coerceAtLeast(0).coerceAtMost(reserveAmmo)
+        currentAmmo += loaded
+        reserveAmmo -= loaded
+        return loaded
+    }
+
+    /** Resets magazine and reserve to what a weapon has at the start of a run. */
+    fun resetAmmo() {
+        currentAmmo = maxAmmo
+        reserveAmmo = maxAmmo * Balance.START_RESERVE_MAGS
+    }
+
     val damage: Float
         get() = type.baseDamage * (1f + (level - 1) * 0.22f)
 
@@ -133,15 +164,28 @@ class Weapon(
 
     val upgradeCost: Int
         get() = when (type) {
-            WeaponType.PISTOL -> 35 * level
-            WeaponType.CROSSBOW -> 50 * level
-            WeaponType.SHOTGUN -> 70 * level
-            WeaponType.RIFLE -> 110 * level
-            WeaponType.FLAMETHROWER -> 140 * level
-            WeaponType.LAUNCHER -> 180 * level
-            WeaponType.MINIGUN -> 220 * level
-            WeaponType.SNIPER -> 260 * level
+            WeaponType.PISTOL -> 45 * level
+            WeaponType.CROSSBOW -> 65 * level
+            WeaponType.SHOTGUN -> 90 * level
+            WeaponType.RIFLE -> 145 * level
+            WeaponType.FLAMETHROWER -> 180 * level
+            WeaponType.LAUNCHER -> 235 * level
+            WeaponType.MINIGUN -> 285 * level
+            WeaponType.SNIPER -> 340 * level
         }
 
     val maxLevel: Int = 10
 }
+
+/** Distance in pixels from the shoulder pivot to the tip of the barrel. */
+val WeaponType.barrelLength: Float
+    get() = when (this) {
+        WeaponType.PISTOL -> 30f
+        WeaponType.CROSSBOW -> 44f
+        WeaponType.SHOTGUN -> 50f
+        WeaponType.RIFLE -> 54f
+        WeaponType.FLAMETHROWER -> 50f
+        WeaponType.LAUNCHER -> 50f
+        WeaponType.MINIGUN -> 56f
+        WeaponType.SNIPER -> 66f
+    }

@@ -26,6 +26,9 @@ data class ActiveFireZone(
     var remainingSeconds: Float = 5.0f
 )
 
+/** What the ammo runner (the girl) is doing right now. */
+enum class RunnerState { IDLE, GOING, FETCHING, BRINGING, HANDING, HOMING }
+
 class GameEngine(
     private val soundManager: SoundManager,
     private val onGameOver: (survivedSeconds: Int, wave: Int, kills: Int, coins: Int) -> Unit
@@ -69,6 +72,39 @@ class GameEngine(
 
     var muzzleFlashTimer: Float by mutableFloatStateOf(0f)
         internal set
+
+    // ---- Ammo runner: the girl who fetches ammo ----
+    var runnerState: RunnerState by mutableStateOf(RunnerState.IDLE)
+        internal set
+
+    /** Seconds until she can be sent again. */
+    var runnerCooldown: Float by mutableFloatStateOf(0f)
+        internal set
+
+    /** 0..1 progress of the current trip, for the HUD ring. */
+    var runnerTripProgress: Float by mutableFloatStateOf(0f)
+        internal set
+
+    var runnerX: Float by mutableFloatStateOf(0f)
+        internal set
+
+    /** 1 = facing right (towards the zombies), -1 = facing left. */
+    var runnerFacing: Int = 1
+        private set
+    var runnerWalkPhase: Float = 0f
+        private set
+    var runnerCarrying: Boolean = false
+        private set
+    var runnerDelivered: Boolean = false
+        private set
+    var runnerTargetType: WeaponType = WeaponType.PISTOL
+        private set
+    private var runnerTimer: Float = 0f
+    private var lastAmmoWarningMs: Long = 0L
+
+    /** True while the delivered crate sits open on the porch. */
+    val runnerCrateOnFloor: Boolean
+        get() = runnerState == RunnerState.HANDING && runnerDelivered
 
     // Complete Arsenal of 8 weapons!
     val weapons: List<Weapon> = listOf(
@@ -134,14 +170,27 @@ class GameEngine(
     val waterTop: Float
         get() = screenHeight * 0.52f
 
+    /** Shoulder pivot of the heroine's weapon. */
+    val gunAnchor: Offset
+        get() = Offset(houseWidth - 42f + 16f, porchY - 54f + 16f)
+
+    /** Muzzle position when the weapon points straight ahead (used for texts and effects). */
     val playerMuzzleOffset: Offset
-        get() {
-            val bodyX = houseWidth - 42f
-            val bodyY = porchY - 54f
-            val gunAnchorX = bodyX + 16f
-            val gunAnchorY = bodyY + 16f
-            return Offset(gunAnchorX + 38f, gunAnchorY)
-        }
+        get() = muzzleFor(0f)
+
+    /** Where the barrel tip is when the weapon is aimed at [angle] radians. */
+    fun muzzleFor(angle: Float): Offset {
+        val a = gunAnchor
+        val reach = currentWeapon.type.barrelLength + 4f
+        return Offset(a.x + cos(angle) * reach, a.y + sin(angle) * reach)
+    }
+
+    val runnerHomeX: Float
+        get() = houseWidth * 0.30f
+
+    /** Where the girl stands to hand over the crate, just left of the heroine's seat. */
+    val runnerDeliverX: Float
+        get() = max(houseWidth - 108f, runnerHomeX + 24f)
 
     val roofTurretOffset: Offset
         get() = Offset(houseWidth * 0.42f, porchY - 145f)
@@ -168,7 +217,7 @@ class GameEngine(
         weapons.forEachIndexed { index, weapon ->
             weapon.isUnlocked = (index == 0)
             weapon.level = 1
-            weapon.currentAmmo = weapon.maxAmmo
+            weapon.resetAmmo()
             weapon.isReloading = false
             weapon.reloadProgress = 0f
             weapon.lastFireTime = 0L
@@ -179,6 +228,13 @@ class GameEngine(
         particles.clear()
         fireZones.clear()
         molotovCooldownRemaining = 0f
+        runnerState = RunnerState.IDLE
+        runnerCooldown = 0f
+        runnerTripProgress = 0f
+        runnerCarrying = false
+        runnerDelivered = false
+        runnerFacing = 1
+        runnerX = runnerHomeX
         shakeIntensity = 0f
         shakeX = 0f
         shakeY = 0f
@@ -191,9 +247,11 @@ class GameEngine(
         status = GameStatus.PLAYING
         waveClearCountdown = 0f
 
-        totalZombiesInWave = 14 + (wave * 5) + min(wave * 2, 70)
+        totalZombiesInWave = Balance.WAVE_BASE_ZOMBIES + (wave * Balance.WAVE_ZOMBIES_PER_WAVE) +
+            min(wave * Balance.WAVE_EXTRA_PER_WAVE, Balance.WAVE_EXTRA_CAP)
         zombiesToSpawnInWave = totalZombiesInWave
-        currentSpawnInterval = (1.35f - (min(wave, 25) * 0.03f)).coerceAtLeast(0.6f)
+        currentSpawnInterval = (Balance.SPAWN_INTERVAL_START - (min(wave, 25) * Balance.SPAWN_INTERVAL_STEP))
+            .coerceAtLeast(Balance.SPAWN_INTERVAL_MIN)
         timeSinceLastSpawn = currentSpawnInterval * 0.5f
 
         spawnFloatingText(
@@ -213,11 +271,24 @@ class GameEngine(
         }
     }
 
-    fun manualReload() {
+    /** Starts reloading the selected weapon from the reserve. Returns true if a reload began. */
+    fun manualReload(): Boolean {
+        if (status != GameStatus.PLAYING) return false
         val w = currentWeapon
-        if (!w.isReloading && w.currentAmmo < w.maxAmmo) {
-            startReload(w)
+        if (w.isReloading || w.currentAmmo >= w.maxAmmo) return false
+        if (w.reserveAmmo <= 0) {
+            warnNoAmmo("¡SIN MUNICIÓN!")
+            return false
         }
+        startReload(w)
+        return true
+    }
+
+    private fun warnNoAmmo(text: String) {
+        val now = System.currentTimeMillis()
+        if (now - lastAmmoWarningMs < 1000L) return
+        lastAmmoWarningMs = now
+        spawnFloatingText(playerMuzzleOffset.x, playerMuzzleOffset.y - 40f, text, Color(0xFFFF5252))
     }
 
     private fun startReload(weapon: Weapon) {
@@ -247,7 +318,8 @@ class GameEngine(
         }
 
         if (weapon.currentAmmo <= 0) {
-            startReload(weapon)
+            // Reloading is manual now: tell her what is wrong instead of doing it for her
+            warnNoAmmo(if (weapon.reserveAmmo > 0) "¡RECARGA!" else "¡SIN MUNICIÓN!")
             return
         }
 
@@ -259,12 +331,13 @@ class GameEngine(
         weapon.lastFireTime = now
         weapon.currentAmmo--
 
-        val origin = playerMuzzleOffset
-        // Allow aiming steep downwards even if tapping directly under the porch/house
-        val dx = (touchX - origin.x).coerceAtLeast(3f)
-        val dy = touchY - origin.y
+        // Aim from the shoulder pivot so the shot leaves exactly from the barrel tip
+        val anchor = gunAnchor
+        val dx = (touchX - anchor.x).coerceAtLeast(3f)
+        val dy = touchY - anchor.y
         // Expanded vertical aim angle: from -48° (-0.85 rad) upwards to +86° (+1.50 rad) downwards into water!
         val baseAngle = atan2(dy, dx).coerceIn(-0.85f, 1.50f)
+        val origin = muzzleFor(baseAngle)
 
         soundManager.playShotSound(weapon.type)
         muzzleFlashTimer = 0.08f
@@ -273,7 +346,7 @@ class GameEngine(
             weapon.type != WeaponType.LAUNCHER &&
             weapon.type != WeaponType.CROSSBOW
         ) {
-            spawnShellCasing(origin.x - 26f, origin.y + 4f)
+            spawnShellCasing(anchor.x + cos(baseAngle) * 14f, anchor.y + sin(baseAngle) * 14f - 2f)
         }
         triggerScreenShake(
             when (weapon.type) {
@@ -429,7 +502,7 @@ class GameEngine(
         }
 
         if (weapon.currentAmmo <= 0) {
-            startReload(weapon)
+            warnNoAmmo(if (weapon.reserveAmmo > 0) "¡RECARGA!" else "¡SIN MUNICIÓN!")
         }
     }
 
@@ -456,6 +529,113 @@ class GameEngine(
         val tx = (target?.x ?: (screenWidth * 0.6f)) - 20f
         val ty = (target?.y ?: (screenHeight * 0.65f)).coerceIn(minWaterY, screenHeight * 0.88f)
         throwMolotov(tx, ty)
+    }
+
+    /** Sends the girl to fetch ammo for the weapon that is selected right now. */
+    fun callAmmoRunner(): Boolean {
+        if (status != GameStatus.PLAYING && status != GameStatus.WAVE_CLEARED) return false
+        if (runnerState != RunnerState.IDLE || runnerCooldown > 0f) return false
+        val weapon = currentWeapon
+        if (weapon.reserveSpace <= 0) {
+            spawnFloatingText(runnerHomeX, porchY - 90f, "Reserva llena", Color(0xFF9CCC65))
+            return false
+        }
+        runnerTargetType = weapon.type
+        runnerState = RunnerState.GOING
+        runnerTripProgress = 0f
+        runnerCarrying = false
+        runnerDelivered = false
+        spawnFloatingText(runnerHomeX, porchY - 90f, "¡Voy por balas!", Color(0xFF80CBC4))
+        return true
+    }
+
+    private fun updateRunner(dt: Float) {
+        if (runnerCooldown > 0f) {
+            runnerCooldown = (runnerCooldown - dt).coerceAtLeast(0f)
+        }
+
+        val home = runnerHomeX
+        val deliver = runnerDeliverX
+        val away = -40f
+        val speed = Balance.RUNNER_SPEED
+
+        when (runnerState) {
+            RunnerState.IDLE -> {
+                runnerX = home
+                runnerFacing = 1
+            }
+
+            RunnerState.GOING -> {
+                runnerFacing = -1
+                runnerX = max(away, runnerX - speed * dt)
+                runnerWalkPhase += dt * 9f
+                runnerTripProgress = 0.22f * ((home - runnerX) / (home - away)).coerceIn(0f, 1f)
+                if (runnerX <= away) {
+                    runnerState = RunnerState.FETCHING
+                    runnerTimer = Balance.RUNNER_FETCH_SECONDS
+                }
+            }
+
+            RunnerState.FETCHING -> {
+                runnerTimer -= dt
+                runnerTripProgress = 0.22f + 0.28f * (1f - (runnerTimer / Balance.RUNNER_FETCH_SECONDS).coerceIn(0f, 1f))
+                if (runnerTimer <= 0f) {
+                    runnerCarrying = true
+                    runnerFacing = 1
+                    runnerState = RunnerState.BRINGING
+                }
+            }
+
+            RunnerState.BRINGING -> {
+                runnerFacing = 1
+                runnerX = min(deliver, runnerX + speed * Balance.RUNNER_LOADED_SPEED_FACTOR * dt)
+                runnerWalkPhase += dt * 8f
+                runnerTripProgress = 0.5f + 0.42f * ((runnerX - away) / (deliver - away)).coerceIn(0f, 1f)
+                if (runnerX >= deliver) {
+                    runnerState = RunnerState.HANDING
+                    runnerTimer = Balance.RUNNER_HAND_SECONDS
+                }
+            }
+
+            RunnerState.HANDING -> {
+                runnerFacing = 1
+                runnerTimer -= dt
+                runnerTripProgress = 0.92f + 0.08f * (1f - (runnerTimer / Balance.RUNNER_HAND_SECONDS).coerceIn(0f, 1f))
+                if (!runnerDelivered && runnerTimer <= Balance.RUNNER_HAND_SECONDS * 0.5f) {
+                    deliverRunnerAmmo()
+                }
+                if (runnerTimer <= 0f) {
+                    runnerCarrying = false
+                    runnerState = RunnerState.HOMING
+                }
+            }
+
+            RunnerState.HOMING -> {
+                runnerFacing = -1
+                runnerX = max(home, runnerX - speed * dt)
+                runnerWalkPhase += dt * 9f
+                runnerTripProgress = 1f
+                if (runnerX <= home) {
+                    runnerState = RunnerState.IDLE
+                }
+            }
+        }
+    }
+
+    private fun deliverRunnerAmmo() {
+        runnerDelivered = true
+        runnerCooldown = Balance.RUNNER_COOLDOWN_SECONDS
+        val weapon = weapons.firstOrNull { it.type == runnerTargetType } ?: currentWeapon
+        val amount = (weapon.maxAmmo * Balance.RUNNER_DELIVERY_MAGS).roundToInt().coerceAtLeast(1)
+        val added = weapon.addReserve(amount)
+        soundManager.playReload()
+        spawnFloatingText(
+            runnerDeliverX + 8f,
+            porchY - 96f,
+            if (added > 0) "+$added balas" else "Reserva llena",
+            Color(0xFF9CCC65),
+            life = 1.3f
+        )
     }
 
     fun repairHouse(): Boolean {
@@ -542,7 +722,6 @@ class GameEngine(
         if (weapon.isUnlocked && weapon.level < weapon.maxLevel && coins >= weapon.upgradeCost) {
             coins -= weapon.upgradeCost
             weapon.level++
-            weapon.currentAmmo = weapon.maxAmmo
             soundManager.playWaveCompleted()
             return true
         }
@@ -608,6 +787,8 @@ class GameEngine(
             molotovCooldownRemaining = (molotovCooldownRemaining - dt).coerceAtLeast(0f)
         }
 
+        updateRunner(dt)
+
         // Damage flash decay
         if (houseDamageFlash > 0f) {
             houseDamageFlash = (houseDamageFlash - dt).coerceAtLeast(0f)
@@ -628,14 +809,7 @@ class GameEngine(
             shakeY = 0f
         }
 
-        // Auto-Reload when idle (when not shooting for 1.1s)
         val now = System.currentTimeMillis()
-        val curW = currentWeapon
-        if (status == GameStatus.PLAYING && !curW.isReloading && curW.currentAmmo < curW.maxAmmo) {
-            if (now - curW.lastFireTime >= 1100L) {
-                startReload(curW)
-            }
-        }
 
         // Weapon reload progression
         weapons.forEach { w ->
@@ -646,7 +820,7 @@ class GameEngine(
                 if (w.reloadProgress >= 1f) {
                     w.isReloading = false
                     w.reloadProgress = 0f
-                    w.currentAmmo = w.maxAmmo
+                    w.finishReload()
                     soundManager.playReload()
                 }
             }
@@ -772,7 +946,7 @@ class GameEngine(
             val targetBarricade = barricadeX + 12f
             if (z.x > targetBarricade) {
                 val slowFactor = if (z.slowTimer > 0f) 0.5f else 1.0f
-                z.x -= z.type.speed * slowFactor * dt
+                z.x -= z.type.speed * z.speedMult * slowFactor * dt
                 z.walkAnimTimer += dt * 5.2f
 
                 if (Random.nextFloat() < 0.08f) {
@@ -793,7 +967,7 @@ class GameEngine(
 
                 if (now - z.lastAttackTime >= z.type.attackIntervalMs) {
                     z.lastAttackTime = now
-                    damageHouse(z.type.attackDamage)
+                    damageHouse(z.type.attackDamage * z.damageMult)
                     spawnWoodSplinters(barricadeX, z.y)
                 }
             }
@@ -957,7 +1131,7 @@ class GameEngine(
         if (status == GameStatus.PLAYING && zombiesToSpawnInWave == 0 && zombies.isEmpty() && houseHp > 0f) {
             status = GameStatus.WAVE_CLEARED
             waveClearCountdown = waveClearDuration
-            val waveBonus = 12 + (wave * 6)
+            val waveBonus = Balance.WAVE_BONUS_BASE + wave * Balance.WAVE_BONUS_PER_WAVE
             coins += waveBonus
             score += waveBonus * 15
             soundManager.playWaveCompleted()
@@ -970,9 +1144,12 @@ class GameEngine(
         val maxSpawnY = screenHeight * 0.94f
         val spawnY = minSpawnY + Random.nextFloat() * (maxSpawnY - minSpawnY)
 
+        // The mix of enemies is picked as if the game were a little further along
+        val tier = wave + Balance.TIER_OFFSET
+
         val type = when {
-            wave == 1 -> if (Random.nextFloat() < 0.25f) ZombieType.RUNNER else ZombieType.WALKER
-            wave == 2 -> {
+            tier == 1 -> if (Random.nextFloat() < 0.25f) ZombieType.RUNNER else ZombieType.WALKER
+            tier == 2 -> {
                 val r = Random.nextFloat()
                 when {
                     r < 0.20f -> ZombieType.ZOMBIE_DOG
@@ -980,7 +1157,7 @@ class GameEngine(
                     else -> ZombieType.WALKER
                 }
             }
-            wave == 3 -> {
+            tier == 3 -> {
                 val r = Random.nextFloat()
                 when {
                     r < 0.15f -> ZombieType.SPITTER
@@ -989,7 +1166,7 @@ class GameEngine(
                     else -> ZombieType.WALKER
                 }
             }
-            wave == 4 -> {
+            tier == 4 -> {
                 val r = Random.nextFloat()
                 when {
                     r < 0.15f -> ZombieType.ARMORED
@@ -1002,7 +1179,7 @@ class GameEngine(
             wave % 5 == 0 && zombiesToSpawnInWave == 1 -> {
                 ZombieType.COLOSSUS
             }
-            wave in 5..8 -> {
+            tier in 5..8 -> {
                 val r = Random.nextFloat()
                 when {
                     r < 0.15f -> ZombieType.ARMORED
@@ -1027,7 +1204,9 @@ class GameEngine(
             }
         }
 
-        val hpMultiplier = 1f + (wave - 1) * 0.045f
+        val hpMultiplier = 1f + (wave - 1) * Balance.HP_GROWTH_PER_WAVE
+        val speedMult = (1f + (wave - 1) * Balance.SPEED_GROWTH_PER_WAVE).coerceAtMost(Balance.SPEED_MULT_CAP)
+        val damageMult = 1f + (wave - 1) * Balance.DAMAGE_GROWTH_PER_WAVE
         val scaledHp = type.maxHp * hpMultiplier
 
         zombies.add(
@@ -1038,7 +1217,9 @@ class GameEngine(
                 y = spawnY,
                 currentHp = scaledHp,
                 maxHp = scaledHp,
-                walkAnimTimer = Random.nextFloat() * 6.28f
+                walkAnimTimer = Random.nextFloat() * 6.28f,
+                speedMult = speedMult,
+                damageMult = damageMult
             )
         )
     }
@@ -1101,7 +1282,7 @@ class GameEngine(
                 y = spitter.y - 20f,
                 vx = cos(angle) * speed,
                 vy = sin(angle) * speed,
-                damage = spitter.type.attackDamage,
+                damage = spitter.type.attackDamage * spitter.damageMult,
                 radius = 6f,
                 isEnemy = true
             )
@@ -1117,7 +1298,7 @@ class GameEngine(
             Particle(
                 id = nextParticleId++,
                 type = ParticleType.MUZZLE_FLASH,
-                x = x + 15f,
+                x = x + 2f,
                 y = y,
                 vx = 0f,
                 vy = 0f,

@@ -18,7 +18,7 @@ enum class ZombieType(
         speed = 62f,
         attackDamage = 8.5f,
         attackIntervalMs = 1100L,
-        coinReward = 2,
+        coinReward = 1,
         width = 44f,
         height = 68f
     ),
@@ -28,7 +28,7 @@ enum class ZombieType(
         speed = 135f,
         attackDamage = 6.5f,
         attackIntervalMs = 700L,
-        coinReward = 3,
+        coinReward = 2,
         width = 38f,
         height = 56f
     ),
@@ -38,7 +38,7 @@ enum class ZombieType(
         speed = 160f,
         attackDamage = 10f,
         attackIntervalMs = 580L,
-        coinReward = 4,
+        coinReward = 2,
         width = 48f,
         height = 36f
     ),
@@ -48,7 +48,7 @@ enum class ZombieType(
         speed = 52f,
         attackDamage = 12f,
         attackIntervalMs = 2100L,
-        coinReward = 5,
+        coinReward = 3,
         width = 46f,
         height = 66f
     ),
@@ -58,7 +58,7 @@ enum class ZombieType(
         speed = 50f,
         attackDamage = 14f,
         attackIntervalMs = 1200L,
-        coinReward = 7,
+        coinReward = 4,
         width = 48f,
         height = 70f,
         armorDamageReduction = 0.45f
@@ -69,7 +69,7 @@ enum class ZombieType(
         speed = 76f,
         attackDamage = 20f,
         attackIntervalMs = 1050L,
-        coinReward = 8,
+        coinReward = 5,
         width = 64f,
         height = 34f
     ),
@@ -79,7 +79,7 @@ enum class ZombieType(
         speed = 34f,
         attackDamage = 28f,
         attackIntervalMs = 1600L,
-        coinReward = 14,
+        coinReward = 8,
         width = 72f,
         height = 100f
     ),
@@ -89,7 +89,7 @@ enum class ZombieType(
         speed = 26f,
         attackDamage = 50f,
         attackIntervalMs = 1900L,
-        coinReward = 40,
+        coinReward = 25,
         width = 96f,
         height = 130f,
         armorDamageReduction = 0.25f,
@@ -108,7 +108,10 @@ data class Zombie(
     var isAttacking: Boolean = false,
     var walkAnimTimer: Float = 0f,
     var hitFlashTimer: Float = 0f,
-    var slowTimer: Float = 0f
+    var slowTimer: Float = 0f,
+    /** Later waves bring faster, harder-hitting zombies. */
+    val speedMult: Float = 1f,
+    val damageMult: Float = 1f
 ) {
     val isDead: Boolean
         get() = currentHp <= 0

@@ -460,7 +460,7 @@ private fun WeaponShopCard(
                     }
                     Text(
                         text = if (!isUnlocked) weapon.type.description
-                        else "Daño: ${weapon.damage.toInt()} | Cargador: ${weapon.maxAmmo} | Cadencia: ${(1000f / weapon.cooldownMs).toInt()} d/s",
+                        else "Daño: ${weapon.damage.toInt()} | Cargador: ${weapon.maxAmmo} | Reserva: ${weapon.reserveAmmo}/${weapon.maxReserve} | Cadencia: ${(1000f / weapon.cooldownMs).toInt()} d/s",
                         fontSize = 11.sp,
                         color = Color(0xFFB0BEC5)
                     )

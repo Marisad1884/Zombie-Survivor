@@ -228,8 +228,9 @@ fun MainMenuScreen(
                         )
                         listOf(
                             "Toca o arrastra sobre el pantano. Mara apunta hacia tu dedo y dispara mientras lo mantengas.",
-                            "Si dejas de disparar un momento, el arma se recarga sola.",
-                            "El botón de fuego, abajo a la izquierda, lanza un molotov al grupo más grande de zombis.",
+                            "Ya no hay recarga automática: pulsa RECARGAR (abajo a la izquierda) cuando se acabe el cargador.",
+                            "La munición de reserva es limitada. Pulsa MUNICIÓN y Nina irá por una caja y te la traerá; tarda un rato, así que no esperes al último tiro.",
+                            "El botón de fuego lanza un molotov al grupo más grande de zombis.",
                             "Cada baja da monedas. Gástalas en la armería: armas, mejoras, reparar la barricada y una torreta en el techo.",
                             "Hay caimanes, perros, zombis blindados y brutos. Cada cinco oleadas llega un jefe."
                         ).forEach { line ->

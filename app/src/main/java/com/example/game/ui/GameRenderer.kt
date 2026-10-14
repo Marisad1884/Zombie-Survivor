@@ -45,7 +45,8 @@ object GameRenderer {
             // 4. Cabin, porch, barricade and roof sentry turret
             drawCabinAndPorch(engine.houseWidth, h, waterTop, engine)
 
-            // 5. Hero soldier
+            // 5. Ammo girl (behind the heroine) and the heroine herself
+            drawAmmoRunner(engine, t)
             drawHeroSoldier(engine, aimTarget)
 
             // 6. Fire zones (Molotov pools)
@@ -86,330 +87,30 @@ object GameRenderer {
         val bodyX = engine.houseWidth - 42f
         val bodyY = porchY - 54f
 
-        val gunAnchorX = bodyX + 16f
-        val gunAnchorY = bodyY + 16f
-
+        val anchor = engine.gunAnchor
         val target = aimTarget ?: Offset(engine.screenWidth * 0.75f, porchY - 20f)
-        val targetDx = (target.x - gunAnchorX).coerceAtLeast(3f)
-        val rawAngle = atan2(target.y - gunAnchorY, targetDx)
+        val targetDx = (target.x - anchor.x).coerceAtLeast(3f)
+        val rawAngle = atan2(target.y - anchor.y, targetDx)
         // Clamp from -48 deg (-0.85 rad) up to +86 deg (+1.50 rad) down so she can aim and shoot under the house
         val aimAngle = rawAngle.coerceIn(-0.85f, 1.50f)
 
+        val weapon = engine.currentWeapon
+        val recoil = (engine.muzzleFlashTimer / 0.08f).coerceIn(0f, 1f) * 4f
+
         // Body, head, hair, scarf... (see HeroRenderer.kt)
-        drawHeroine(bodyX, bodyY, porchY, sceneTime(), engine.muzzleFlashTimer)
+        drawHeroine(bodyX, bodyY, porchY, sceneTime(), engine.muzzleFlashTimer, aimAngle, recoil)
 
-        // Arms and gun anchored directly to her hands and shoulder
-        drawTacticalGun(gunAnchorX, gunAnchorY, aimAngle, engine.currentWeapon.type, engine.muzzleFlashTimer)
-    }
-
-    private fun DrawScope.drawTacticalGun(
-        anchorX: Float,
-        anchorY: Float,
-        angle: Float,
-        weaponType: WeaponType,
-        muzzleFlashTimer: Float
-    ) {
-        // Kick the weapon back along its axis right after each shot
-        val recoil = (muzzleFlashTimer / 0.08f).coerceIn(0f, 1f) * 4f
-        withTransform({
-            rotate(degrees = angle * (180f / PI.toFloat()), pivot = Offset(anchorX, anchorY))
-            translate(left = -recoil, top = 0f)
-        }) {
-            val gunLength = when (weaponType) {
-                WeaponType.PISTOL -> 28f
-                WeaponType.CROSSBOW -> 42f
-                WeaponType.SHOTGUN -> 46f
-                WeaponType.RIFLE -> 52f
-                WeaponType.FLAMETHROWER -> 48f
-                WeaponType.LAUNCHER -> 48f
-                WeaponType.MINIGUN -> 54f
-                WeaponType.SNIPER -> 64f
-            }
-            val gunWidth = when (weaponType) {
-                WeaponType.PISTOL -> 6f
-                WeaponType.CROSSBOW -> 7f
-                WeaponType.SHOTGUN -> 9f
-                WeaponType.RIFLE -> 8f
-                WeaponType.FLAMETHROWER -> 12f
-                WeaponType.LAUNCHER -> 13f
-                WeaponType.MINIGUN -> 12f
-                WeaponType.SNIPER -> 8f
-            }
-
-            // 1. Right Arm & Shoulder Stock (Anchored to body)
-            // Tactical Camo Right Arm sleeve
-            drawRoundRect(
-                color = Color(0xFF3A4733),
-                topLeft = Offset(anchorX - 14f, anchorY - 6f),
-                size = Size(14f, 10f),
-                cornerRadius = CornerRadius(3f, 3f)
-            )
-            // Stock braced against shoulder
-            drawRoundRect(
-                color = Color(0xFF263238),
-                topLeft = Offset(anchorX - 16f, anchorY - 4f),
-                size = Size(16f, 8f),
-                cornerRadius = CornerRadius(2f, 2f)
-            )
-            // Pistol grip
-            drawRoundRect(
-                color = Color(0xFF1B2428),
-                topLeft = Offset(anchorX, anchorY - 1f),
-                size = Size(7f, 13f),
-                cornerRadius = CornerRadius(2f, 2f)
-            )
-            // Right Gloved Hand on grip & trigger
-            drawCircle(
-                color = Color(0xFF212121),
-                center = Offset(anchorX + 3f, anchorY + 4f),
-                radius = 5f
-            )
-
-            // 2. Weapon Main Receiver & Barrel
-            drawRoundRect(
-                color = Color(0xFF212121),
-                topLeft = Offset(anchorX - 2f, anchorY - gunWidth / 2f),
-                size = Size(gunLength, gunWidth),
-                cornerRadius = CornerRadius(2f, 2f)
-            )
-
-            // 3. Left Arm & Hand supporting weapon foregrip / barrel
-            // Left tactical arm reaching forward
-            drawLine(
-                color = Color(0xFF3A4733),
-                start = Offset(anchorX - 10f, anchorY + 5f),
-                end = Offset(anchorX + 16f, anchorY + 3f),
-                strokeWidth = 6f
-            )
-            // Bare forearm below the rolled sleeve
-            drawLine(
-                color = Color(0xFFC98E66),
-                start = Offset(anchorX + 6f, anchorY + 4f),
-                end = Offset(anchorX + 16f, anchorY + 3f),
-                strokeWidth = 4.4f
-            )
-            // Left Gloved Hand holding barrel/handguard
-            drawCircle(
-                color = Color(0xFF212121),
-                center = Offset(anchorX + 16f, anchorY + 3f),
-                radius = 4.5f
-            )
-
-            // 4. Weapon Type Specific Details
-            when (weaponType) {
-                WeaponType.PISTOL -> {
-                    // Brushed metal slide top
-                    drawRect(
-                        color = Color(0xFF546E7A),
-                        topLeft = Offset(anchorX + 4f, anchorY - gunWidth / 2f - 1.5f),
-                        size = Size(gunLength - 4f, 3f)
-                    )
-                    // Tactical red dot optic
-                    drawCircle(color = Color(0xFFFF1744), center = Offset(anchorX + 7f, anchorY - gunWidth / 2f - 2f), radius = 1.5f)
-                }
-
-                WeaponType.CROSSBOW -> {
-                    // Curved bow limbs extending vertically
-                    drawLine(
-                        color = Color(0xFF455A64),
-                        start = Offset(anchorX + 28f, anchorY - 18f),
-                        end = Offset(anchorX + 34f, anchorY),
-                        strokeWidth = 3f
-                    )
-                    drawLine(
-                        color = Color(0xFF455A64),
-                        start = Offset(anchorX + 28f, anchorY + 18f),
-                        end = Offset(anchorX + 34f, anchorY),
-                        strokeWidth = 3f
-                    )
-                    // High-tension bowstring
-                    drawLine(
-                        color = Color(0xFFB0BEC5),
-                        start = Offset(anchorX + 28f, anchorY - 18f),
-                        end = Offset(anchorX + 12f, anchorY),
-                        strokeWidth = 1.5f
-                    )
-                    drawLine(
-                        color = Color(0xFFB0BEC5),
-                        start = Offset(anchorX + 28f, anchorY + 18f),
-                        end = Offset(anchorX + 12f, anchorY),
-                        strokeWidth = 1.5f
-                    )
-                    // Glowing loaded hunting bolt
-                    drawLine(
-                        color = Color(0xFF76FF03),
-                        start = Offset(anchorX + 12f, anchorY),
-                        end = Offset(anchorX + 38f, anchorY),
-                        strokeWidth = 2f
-                    )
-                }
-
-                WeaponType.SHOTGUN -> {
-                    // Under-barrel tubular magazine
-                    drawRoundRect(
-                        color = Color(0xFF37474F),
-                        topLeft = Offset(anchorX + 8f, anchorY + 1f),
-                        size = Size(gunLength - 10f, 4f),
-                        cornerRadius = CornerRadius(1.5f, 1.5f)
-                    )
-                    // Ribbed pump fore-end slide
-                    drawRoundRect(
-                        color = Color(0xFF5D4037), // wooden/rugged pump
-                        topLeft = Offset(anchorX + 16f, anchorY + 0.5f),
-                        size = Size(13f, 6f),
-                        cornerRadius = CornerRadius(2f, 2f)
-                    )
-                    // Large 12-gauge muzzle choke
-                    drawRect(
-                        color = Color(0xFF263238),
-                        topLeft = Offset(anchorX + gunLength - 2f, anchorY - gunWidth / 2f - 1f),
-                        size = Size(4f, gunWidth + 2f)
-                    )
-                }
-
-                WeaponType.RIFLE -> {
-                    // Curved military 30-round magazine
-                    drawRoundRect(
-                        color = Color(0xFF263238),
-                        topLeft = Offset(anchorX + 10f, anchorY + gunWidth / 2f),
-                        size = Size(8f, 15f),
-                        cornerRadius = CornerRadius(2f, 2f)
-                    )
-                    // Tactical carrying handle / ACOG scope
-                    drawRoundRect(
-                        color = Color(0xFF37474F),
-                        topLeft = Offset(anchorX + 8f, anchorY - gunWidth / 2f - 6f),
-                        size = Size(12f, 6f),
-                        cornerRadius = CornerRadius(1.5f, 1.5f)
-                    )
-                    drawCircle(color = Color(0xFF00E676), center = Offset(anchorX + 14f, anchorY - gunWidth / 2f - 3f), radius = 1.5f)
-                    // Birdcage flash hider
-                    drawRect(
-                        color = Color(0xFF455A64),
-                        topLeft = Offset(anchorX + gunLength, anchorY - 2.5f),
-                        size = Size(5f, 5f)
-                    )
-                }
-
-                WeaponType.FLAMETHROWER -> {
-                    // Fuel line hose
-                    drawLine(
-                        color = Color(0xFFFF8F00),
-                        start = Offset(anchorX - 6f, anchorY + 8f),
-                        end = Offset(anchorX + 14f, anchorY + 6f),
-                        strokeWidth = 3f
-                    )
-                    // Pressure gauge
-                    drawCircle(color = Color(0xFFFFD54F), center = Offset(anchorX + 12f, anchorY - gunWidth / 2f - 2f), radius = 3.5f)
-                    // Flared combustion nozzle & pilot flame
-                    drawRoundRect(
-                        color = Color(0xFF3E2723),
-                        topLeft = Offset(anchorX + gunLength - 4f, anchorY - gunWidth / 2f - 2f),
-                        size = Size(8f, gunWidth + 4f),
-                        cornerRadius = CornerRadius(2f, 2f)
-                    )
-                    // Small glowing pilot light
-                    drawCircle(color = Color(0xFFFF6F00), center = Offset(anchorX + gunLength + 3f, anchorY), radius = 2.5f)
-                }
-
-                WeaponType.LAUNCHER -> {
-                    // Heavy cylindrical tube
-                    drawRoundRect(
-                        color = Color(0xFF2E4E37),
-                        topLeft = Offset(anchorX + 2f, anchorY - gunWidth / 2f),
-                        size = Size(gunLength, gunWidth),
-                        cornerRadius = CornerRadius(3f, 3f)
-                    )
-                    // Launcher muzzle ring
-                    drawRoundRect(
-                        color = Color(0xFF1B2428),
-                        topLeft = Offset(anchorX + gunLength - 2f, anchorY - gunWidth / 2f - 1.5f),
-                        size = Size(5f, gunWidth + 3f),
-                        cornerRadius = CornerRadius(2f, 2f)
-                    )
-                    // Elevation sight
-                    drawRect(
-                        color = Color(0xFFFFD54F),
-                        topLeft = Offset(anchorX + 14f, anchorY - gunWidth / 2f - 5f),
-                        size = Size(3f, 5f)
-                    )
-                }
-
-                WeaponType.MINIGUN -> {
-                    // Rotary 6-barrel cluster
-                    for (b in -2..2) {
-                        drawLine(
-                            color = Color(0xFF37474F),
-                            start = Offset(anchorX + 12f, anchorY + b * 2.5f),
-                            end = Offset(anchorX + gunLength, anchorY + b * 2.5f),
-                            strokeWidth = 1.8f
-                        )
-                    }
-                    // Rotating clamping collar rings
-                    drawRect(color = Color(0xFF212121), topLeft = Offset(anchorX + 24f, anchorY - gunWidth / 2f), size = Size(3f, gunWidth))
-                    drawRect(color = Color(0xFF212121), topLeft = Offset(anchorX + 42f, anchorY - gunWidth / 2f), size = Size(3f, gunWidth))
-                    // Top carrying handle
-                    drawRoundRect(
-                        color = Color(0xFF263238),
-                        topLeft = Offset(anchorX + 10f, anchorY - gunWidth / 2f - 6f),
-                        size = Size(16f, 5f),
-                        cornerRadius = CornerRadius(1.5f, 1.5f)
-                    )
-                }
-
-                WeaponType.SNIPER -> {
-                    // High-magnification sniper optic scope with mount
-                    drawRoundRect(
-                        color = Color(0xFF263238),
-                        topLeft = Offset(anchorX + 10f, anchorY - gunWidth / 2f - 8f),
-                        size = Size(20f, 7f),
-                        cornerRadius = CornerRadius(2f, 2f)
-                    )
-                    drawCircle(color = Color(0xFF00E5FF), center = Offset(anchorX + 28f, anchorY - gunWidth / 2f - 4.5f), radius = 2.5f)
-                    // Fluted long heavy barrel
-                    drawLine(
-                        color = Color(0xFF37474F),
-                        start = Offset(anchorX + 22f, anchorY),
-                        end = Offset(anchorX + gunLength, anchorY),
-                        strokeWidth = 3.5f
-                    )
-                    // Heavy recoil muzzle brake
-                    drawRect(
-                        color = Color(0xFF212121),
-                        topLeft = Offset(anchorX + gunLength, anchorY - 3f),
-                        size = Size(6f, 6f)
-                    )
-                    // Folded bipod
-                    drawRect(
-                        color = Color(0xFF455A64),
-                        topLeft = Offset(anchorX + 38f, anchorY + 3f),
-                        size = Size(10f, 2.5f)
-                    )
-                }
-            }
-
-            // 5. Dynamic Muzzle Flash when firing
-            if (muzzleFlashTimer > 0f) {
-                val flashX = anchorX + gunLength + 2f
-                val flashY = anchorY
-                val flashRadius = (10f + muzzleFlashTimer * 35f).coerceAtMost(22f)
-
-                drawCircle(
-                    color = Color(0xFFFFD54F),
-                    center = Offset(flashX + 3f, flashY),
-                    radius = flashRadius
-                )
-                drawCircle(
-                    color = Color(0xFFFFF9C4),
-                    center = Offset(flashX + 1f, flashY),
-                    radius = flashRadius * 0.55f
-                )
-                // Flash sparks
-                drawLine(color = Color(0xFFFF9800), start = Offset(flashX, flashY), end = Offset(flashX + flashRadius * 1.5f, flashY - flashRadius * 0.6f), strokeWidth = 2f)
-                drawLine(color = Color(0xFFFF9800), start = Offset(flashX, flashY), end = Offset(flashX + flashRadius * 1.5f, flashY + flashRadius * 0.6f), strokeWidth = 2f)
-                drawLine(color = Color(0xFFFFEB3B), start = Offset(flashX, flashY), end = Offset(flashX + flashRadius * 1.8f, flashY), strokeWidth = 2.5f)
-            }
-        }
+        // Arms and weapon, anchored to her shoulder (see WeaponRenderer.kt)
+        drawHeroWeapon(
+            bodyX = bodyX,
+            bodyY = bodyY,
+            anchor = anchor,
+            aimAngle = aimAngle,
+            type = weapon.type,
+            muzzleFlash = engine.muzzleFlashTimer,
+            reloading = weapon.isReloading,
+            reloadProgress = weapon.reloadProgress
+        )
     }
 
     private fun DrawScope.drawZombie(z: Zombie, waterTop: Float) {
