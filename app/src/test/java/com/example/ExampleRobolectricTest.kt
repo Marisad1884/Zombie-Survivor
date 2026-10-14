@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.example.game.data.LeaderboardRepository
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -77,5 +78,105 @@ class ExampleRobolectricTest {
     engine.throwMolotovAtThreat()
     assertEquals(2, engine.defenseUpgrades.molotovCount)
     assertTrue("A fire zone should be created", engine.fireZones.isNotEmpty())
+  }
+
+  private fun newEngine(): com.example.game.engine.GameEngine {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val soundManager = com.example.game.audio.SoundManager(context)
+    val engine = com.example.game.engine.GameEngine(soundManager) { _, _, _, _ -> }
+    engine.screenWidth = 1200f
+    engine.screenHeight = 700f
+    return engine
+  }
+
+  @Test
+  fun `empty magazine does not reload by itself`() {
+    val engine = newEngine()
+    val weapon = engine.currentWeapon
+    weapon.currentAmmo = 0
+    val reserveBefore = weapon.reserveAmmo
+
+    engine.onTouchShoot(900f, 400f)
+    engine.update(0.5f)
+
+    assertFalse("Reload must be manual now", weapon.isReloading)
+    assertEquals(0, weapon.currentAmmo)
+    assertEquals(reserveBefore, weapon.reserveAmmo)
+    assertTrue(engine.projectiles.isEmpty())
+  }
+
+  @Test
+  fun `manual reload moves rounds from reserve to magazine`() {
+    val engine = newEngine()
+    val weapon = engine.currentWeapon
+    weapon.currentAmmo = 0
+    val reserveBefore = weapon.reserveAmmo
+    assertTrue(reserveBefore > 0)
+
+    assertTrue(engine.manualReload())
+    assertTrue(weapon.isReloading)
+    repeat(100) { engine.update(0.05f) }
+
+    assertFalse(weapon.isReloading)
+    val moved = minOf(weapon.maxAmmo, reserveBefore)
+    assertEquals(moved, weapon.currentAmmo)
+    assertEquals(reserveBefore - moved, weapon.reserveAmmo)
+  }
+
+  @Test
+  fun `cannot reload without reserve or with a full magazine`() {
+    val engine = newEngine()
+    val weapon = engine.currentWeapon
+    assertFalse("Full magazine", engine.manualReload())
+
+    weapon.currentAmmo = 0
+    weapon.reserveAmmo = 0
+    assertFalse("No reserve", engine.manualReload())
+    assertFalse(weapon.isReloading)
+  }
+
+  @Test
+  fun `ammo girl brings ammo and then has to cool down`() {
+    val engine = newEngine()
+    val weapon = engine.currentWeapon
+    weapon.reserveAmmo = 0
+    assertEquals(com.example.game.engine.RunnerState.IDLE, engine.runnerState)
+
+    assertTrue(engine.callAmmoRunner())
+    assertEquals(com.example.game.engine.RunnerState.GOING, engine.runnerState)
+    assertFalse("Already on her way", engine.callAmmoRunner())
+
+    // Nothing arrives right away
+    engine.update(0.5f)
+    assertEquals(0, weapon.reserveAmmo)
+
+    var guard = 0
+    while (engine.runnerState != com.example.game.engine.RunnerState.IDLE && guard++ < 2000) {
+      engine.update(0.05f)
+    }
+    assertEquals(com.example.game.engine.RunnerState.IDLE, engine.runnerState)
+    assertTrue("She should have delivered rounds", weapon.reserveAmmo > 0)
+    assertTrue("Reserve never exceeds the cap", weapon.reserveAmmo <= weapon.maxReserve)
+    assertTrue("Cooldown after a delivery", engine.runnerCooldown > 0f)
+    assertFalse(engine.callAmmoRunner())
+  }
+
+  @Test
+  fun `ammo girl refuses when the reserve is already full`() {
+    val engine = newEngine()
+    val weapon = engine.currentWeapon
+    weapon.reserveAmmo = weapon.maxReserve
+    assertFalse(engine.callAmmoRunner())
+    assertEquals(com.example.game.engine.RunnerState.IDLE, engine.runnerState)
+  }
+
+  @Test
+  fun `bullets leave from the barrel tip`() {
+    val engine = newEngine()
+    engine.onTouchShoot(900f, engine.gunAnchor.y)
+    assertTrue(engine.projectiles.isNotEmpty())
+    val p = engine.projectiles.first()
+    val tip = engine.muzzleFor(0f)
+    assertEquals(tip.x, p.x, 6f)
   }
 }

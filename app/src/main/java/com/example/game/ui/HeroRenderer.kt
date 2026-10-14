@@ -17,7 +17,7 @@ import kotlin.math.sin
  * pushed up on her forehead, olive jacket with a chest rig and fingerless gloves.
  *
  * She is drawn facing right, seated behind the barricade. The weapon and the arms holding it are
- * drawn separately by the caller (see GameRenderer.drawTacticalGun) so the same body works with
+ * drawn separately by the caller (see WeaponRenderer.drawHeroWeapon) so the same body works with
  * every weapon.
  */
 
@@ -39,7 +39,9 @@ internal fun DrawScope.drawHeroine(
     bodyY: Float,
     porchY: Float,
     t: Float,
-    muzzleFlash: Float
+    muzzleFlash: Float,
+    aimAngle: Float = 0f,
+    recoil: Float = 0f
 ) {
     val breath = sin(t * 2.1f) * 0.8f
     val flap = sin(t * 3.4f) * 3f
@@ -122,7 +124,7 @@ internal fun DrawScope.drawHeroine(
     drawLine(Color(0xFF0B0907), Offset(bodyX - 1f, porchY - 0.5f), Offset(bodyX + 15f, porchY - 0.5f), 2f)
 
     // ---- Upper body (breathes) ---------------------------------------------------------------
-    withTransform({ translate(left = 0f, top = breath) }) {
+    withTransform({ translate(left = -recoil * 0.45f, top = breath) }) {
         // torso / jacket
         val torso = Path().apply {
             moveTo(bodyX - 13f, bodyY + 6f)
@@ -141,6 +143,9 @@ internal fun DrawScope.drawHeroine(
                 end = Offset(bodyX - 12f, bodyY + 34f)
             )
         )
+        drawPath(torso, Color(0xAA070A05), style = Stroke(width = 1.4f))
+        // moonlight rim on the shoulder
+        drawLine(Color(0x66A9CCE3), Offset(bodyX - 8f, bodyY + 2.6f), Offset(bodyX + 8f, bodyY + 1.6f), 1.4f, StrokeCap.Round)
         // jacket center zip + hem seam
         drawLine(Color(0xFF151A12), Offset(bodyX + 2f, bodyY + 6f), Offset(bodyX + 1f, bodyY + 33f), 1.2f)
         drawLine(Color(0xFF151A12), Offset(bodyX - 11f, bodyY + 30f), Offset(bodyX + 11f, bodyY + 30f), 1.2f)
@@ -160,6 +165,9 @@ internal fun DrawScope.drawHeroine(
         drawRect(Color(0xFF14181A), Offset(bodyX - 12f, bodyY + 9f), Size(6f, 6f))
         drawRect(Color(0xFFE0762B), Offset(bodyX - 12f, bodyY + 11f), Size(6f, 1.8f))
 
+        // dog tags
+        drawLine(Color(0xFFB0BEC5), Offset(bodyX + 3f, bodyY + 4f), Offset(bodyX + 4.5f, bodyY + 11f), 0.8f)
+        drawRoundRect(Color(0xFFCFD8DC), Offset(bodyX + 3f, bodyY + 10.5f), Size(3.4f, 4.6f), CornerRadius(1f, 1f))
         // neck
         drawRect(SKIN_SHADE, Offset(bodyX - 2f, bodyY - 5f), Size(7f, 8f))
 
@@ -167,6 +175,9 @@ internal fun DrawScope.drawHeroine(
         val hx = bodyX + 1f
         val hy = bodyY - 12f
 
+        // the head follows the aim a little, so she looks where she shoots
+        val tilt = (aimAngle * 57.3f * 0.3f).coerceIn(-12f, 16f)
+        withTransform({ rotate(degrees = tilt, pivot = Offset(bodyX + 2f, bodyY + 2f)) }) {
         // face
         drawOval(
             Brush.radialGradient(
@@ -238,6 +249,9 @@ internal fun DrawScope.drawHeroine(
             drawLine(Color(0xAAFFFFFF), Offset(hx + 2f, hy - 14.8f), Offset(hx + 5.5f, hy - 15.4f), 1.2f, StrokeCap.Round)
         }
         glow(hx + 5f, hy - 13f, 9f, Color(0xFFFFA726).copy(alpha = 0.18f))
+        // moonlight catching the top of her hair
+        drawLine(Color(0x55B3E5FC), Offset(hx - 9f, hy - 13.5f), Offset(hx + 3f, hy - 15f), 1.2f, StrokeCap.Round)
+        }
 
         // scarf wrapped around the neck, knot in front
         drawRoundRect(SCARF, Offset(bodyX - 5f, bodyY - 2f), Size(15f, 7f), CornerRadius(3.5f, 3.5f))

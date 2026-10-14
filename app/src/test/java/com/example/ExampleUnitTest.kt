@@ -1,5 +1,6 @@
 package com.example
 
+import com.example.game.model.Balance
 import com.example.game.model.DefenseUpgrades
 import com.example.game.model.Weapon
 import com.example.game.model.WeaponType
@@ -46,5 +47,31 @@ class ExampleUnitTest {
     assertTrue(ZombieType.COLOSSUS.isBoss)
     assertTrue(ZombieType.ARMORED.armorDamageReduction > 0f)
     assertTrue(ZombieType.ZOMBIE_DOG.speed > ZombieType.WALKER.speed)
+  }
+
+  @Test
+  fun testReserveAmmoIsLimited() {
+    val rifle = Weapon(WeaponType.RIFLE, initialUnlocked = true)
+    assertEquals(rifle.maxAmmo * Balance.START_RESERVE_MAGS, rifle.reserveAmmo)
+    assertEquals(rifle.maxAmmo * Balance.MAX_RESERVE_MAGS, rifle.maxReserve)
+
+    val added = rifle.addReserve(10_000)
+    assertEquals(rifle.maxReserve, rifle.reserveAmmo)
+    assertTrue(added > 0)
+    assertEquals(0, rifle.addReserve(5))
+
+    rifle.currentAmmo = 0
+    rifle.reserveAmmo = rifle.maxAmmo / 2
+    val moved = rifle.finishReload()
+    assertEquals(rifle.maxAmmo / 2, moved)
+    assertEquals(0, rifle.reserveAmmo)
+  }
+
+  @Test
+  fun testEconomyIsTighter() {
+    assertTrue(ZombieType.WALKER.coinReward <= 1)
+    assertTrue(ZombieType.TANK.coinReward <= 8)
+    assertTrue(WeaponType.SHOTGUN.unlockCost >= 100)
+    assertTrue(Balance.WAVE_BONUS_BASE + Balance.WAVE_BONUS_PER_WAVE < 15)
   }
 }
