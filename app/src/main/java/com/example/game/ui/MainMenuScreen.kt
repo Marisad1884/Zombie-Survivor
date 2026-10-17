@@ -312,14 +312,14 @@ private fun DrawScope.drawPlank(pressed: Boolean, primary: Boolean, seed: Int) {
 
     // grain lines
     for (i in 0 until 8) {
-        val y = size.height * (0.10f + 0.11f * i) + hash01(seed * 10 + i, 1f) * 3f
-        val x0 = hash01(seed * 10 + i, 2f) * size.width * 0.12f
-        val x1 = size.width * (0.5f + hash01(seed * 10 + i, 3f) * 0.5f)
-        drawLine(Color(0x2E000000), Offset(x0, y), Offset(x1, y + (hash01(seed * 10 + i, 4f) - 0.5f) * 3.5f), 1.2f)
+        val y = size.height * (0.10f + 0.11f * i) + hash01(seed * 10 + i, 1) * 3f
+        val x0 = hash01(seed * 10 + i, 2) * size.width * 0.12f
+        val x1 = size.width * (0.5f + hash01(seed * 10 + i, 3) * 0.5f)
+        drawLine(Color(0x2E000000), Offset(x0, y), Offset(x1, y + (hash01(seed * 10 + i, 4) - 0.5f) * 3.5f), 1.2f)
     }
     // knot
-    val kx = size.width * (0.55f + hash01(seed, 5f) * 0.3f)
-    val ky = size.height * (0.35f + hash01(seed, 6f) * 0.3f)
+    val kx = size.width * (0.55f + hash01(seed, 5) * 0.3f)
+    val ky = size.height * (0.35f + hash01(seed, 6) * 0.3f)
     drawOval(Color(0x44000000), Offset(kx - 6f, ky - 4f), Size(12f, 8f))
     drawOval(Color(0x33000000), Offset(kx - 9f, ky - 6.5f), Size(18f, 13f), style = Stroke(1f))
 
