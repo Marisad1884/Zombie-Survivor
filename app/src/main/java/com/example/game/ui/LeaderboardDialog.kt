@@ -367,7 +367,7 @@ private fun LeaderboardRowItem(
                     )
                 }
                 Text(
-                    text = "$${entry.coinsEarned}",
+                    text = "${entry.coinsEarned} pts",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFFFFD700)

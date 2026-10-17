@@ -1,57 +1,69 @@
 package com.example.game.model
 
 /**
- * Every tunable number for difficulty, economy, ammo and the ammo runner, in one place.
- * Change a value here and the whole game follows; nothing else needs touching.
+ * Every tunable number of the game in one place.
+ *
+ * The world is measured in "units": the screen is always 340 units tall and as wide as its aspect ratio
+ * needs, so the game looks and plays the same on every phone. A sprite pixel is 2 units.
  */
 object Balance {
 
-    // ---------------------------------------------------------------- difficulty
-    /** Enemy mix is picked as if the wave were this many waves further along. */
-    const val TIER_OFFSET = 1
+    // ---------------------------------------------------------------- world layout
+    const val WORLD_H = 340f
+    /** Height of the grey HUD bar, as a fraction of the screen. */
+    const val BAR_FRACTION = 0.17f
+    /** Where everybody's feet are. */
+    const val FLOOR_Y = 318f
+    /** One sprite pixel, in world units. */
+    const val PX = 2f
+    /** How far from the right edge the heroine stands. */
+    const val HERO_FROM_RIGHT = 150f
+    /** Door: centre distance from the right edge, and width. */
+    const val DOOR_FROM_RIGHT = 63f
+    const val DOOR_WIDTH = 58f
+    const val DOOR_HEIGHT = 104f
 
-    const val WAVE_BASE_ZOMBIES = 14
-    const val WAVE_ZOMBIES_PER_WAVE = 5
-    const val WAVE_EXTRA_PER_WAVE = 2
-    const val WAVE_EXTRA_CAP = 70
+    // ---------------------------------------------------------------- zombies
+    const val SPAWN_X = -40f
+    /** Zombies are caught-up with the heroine when their arms get this close to her. */
+    const val CATCH_MARGIN = 6f
+    /** Top fraction of a zombie that counts as head. */
+    const val HEAD_FRACTION = 0.26f
+    const val HEADSHOT_MULTIPLIER = 2.5f
 
-    /** Seconds between spawns: starts at START, shrinks by STEP per wave (up to 25 waves), never below MIN. */
-    const val SPAWN_INTERVAL_START = 1.10f
-    const val SPAWN_INTERVAL_STEP = 0.03f
-    const val SPAWN_INTERVAL_MIN = 0.45f
+    const val FIRST_SPAWN_DELAY = 1.5f
+    const val SPAWN_INTERVAL_START = 3.4f
+    const val SPAWN_INTERVAL_STEP = 0.22f
+    const val SPAWN_INTERVAL_MIN = 1.0f
+    const val KILLS_PER_WAVE = 10
+    const val SPEED_GROWTH_PER_WAVE = 0.03f
+    const val SPEED_MULT_CAP = 1.9f
+    const val RUNNER_FROM_WAVE = 2
+    const val BRUTE_FROM_WAVE = 4
 
-    /** Extra health, speed and damage per wave, as a fraction of the base value. */
-    const val HP_GROWTH_PER_WAVE = 0.07f
-    const val SPEED_GROWTH_PER_WAVE = 0.012f
-    const val SPEED_MULT_CAP = 1.5f
-    const val DAMAGE_GROWTH_PER_WAVE = 0.03f
+    // ---------------------------------------------------------------- score
+    const val SCORE_PER_KILL_HEADSHOT_BONUS = 10
 
-    // ---------------------------------------------------------------- economy
-    /** Bonus coins for clearing a wave: BASE + PER_WAVE * wave. */
-    const val WAVE_BONUS_BASE = 6
-    const val WAVE_BONUS_PER_WAVE = 3
+    // ---------------------------------------------------------------- weapons
+    const val REVOLVER_DAMAGE = 34f
 
-    // ---------------------------------------------------------------- ammo
-    /** Spare magazines a weapon starts with (the pistol too: nothing is infinite any more). */
-    const val START_RESERVE_MAGS = 3
+    /** The shotgun does triple the revolver's damage per shell, spread over its pellets. */
+    const val SHOTGUN_PELLETS = 6
+    const val SHOTGUN_DAMAGE_PER_SHELL = REVOLVER_DAMAGE * 3f
+    const val SHOTGUN_SPREAD = 0.075f
+    /** Shotgun reaches only this fraction of the map width, counted from the heroine. */
+    const val SHOTGUN_RANGE_FRACTION = 0.5f
 
-    /** The most spare magazines she can carry in her pockets for one weapon. */
-    const val MAX_RESERVE_MAGS = 4
+    const val GRENADE_DAMAGE = 150f
+    const val GRENADE_RADIUS = 115f
+    const val GRENADE_MAX_DISTANCE_FROM_HERO = 90f
 
-    // ---------------------------------------------------------------- ammo runner (the girl)
-    /** Walking speed in pixels per second (a bit slower while carrying the crate). */
-    const val RUNNER_SPEED = 120f
-    const val RUNNER_LOADED_SPEED_FACTOR = 0.85f
-
-    /** Seconds she spends out of sight getting the crate. */
-    const val RUNNER_FETCH_SECONDS = 2.6f
-
-    /** Seconds she spends handing the crate over. The ammo lands halfway through. */
+    // ---------------------------------------------------------------- ammo girl
+    /** Walking speed in units per second. */
+    const val RUNNER_SPEED = 70f
+    /** Seconds she spends inside the house getting the ammo. */
+    const val RUNNER_FETCH_SECONDS = 4.0f
     const val RUNNER_HAND_SECONDS = 1.0f
-
-    /** Seconds before she can be sent again, counted from the moment the ammo is delivered. */
-    const val RUNNER_COOLDOWN_SECONDS = 7f
-
-    /** How many magazines of the selected weapon she brings per trip. */
-    const val RUNNER_DELIVERY_MAGS = 2f
+    /** Seconds before she can be sent again, counted from the delivery. */
+    const val RUNNER_COOLDOWN_SECONDS = 5f
 }

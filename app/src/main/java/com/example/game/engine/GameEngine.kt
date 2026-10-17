@@ -14,82 +14,54 @@ import kotlin.random.Random
 
 enum class GameStatus {
     PLAYING,
-    WAVE_CLEARED,
     PAUSED,
     GAME_OVER
 }
 
-data class ActiveFireZone(
-    val x: Float,
-    val y: Float,
-    val radius: Float = 110f,
-    var remainingSeconds: Float = 5.0f
-)
+/** What the girl who brings ammo is doing. She lives behind the door. */
+enum class RunnerState { IDLE, FETCHING, BRINGING, HANDING, HOMING }
 
-/** What the ammo runner (the girl) is doing right now. */
-enum class RunnerState { IDLE, GOING, FETCHING, BRINGING, HANDING, HOMING }
-
+/**
+ * Hallway shooter. Zombies shuffle along one line from the left; if one reaches the heroine she is caught
+ * and the run is over, instantly. There is no money and no base health: only bullets, which are scarce.
+ *
+ * Everything is measured in world units (the screen is 340 units tall, see Balance).
+ */
 class GameEngine(
     private val soundManager: SoundManager,
-    private val onGameOver: (survivedSeconds: Int, wave: Int, kills: Int, coins: Int) -> Unit
+    private val onGameOver: (survivedSeconds: Int, wave: Int, kills: Int, score: Int) -> Unit
 ) {
-    // Observable Compose States for instant 60 FPS HUD and UI reactivity
+    // ---------------------------------------------------------------- observable state (read by the HUD)
     var status: GameStatus by mutableStateOf(GameStatus.PLAYING)
         internal set
-
-    var wave: Int by mutableIntStateOf(1)
-        internal set
-
-    var houseHp: Float by mutableFloatStateOf(100f)
-        internal set
-
-    var defenseUpgrades: DefenseUpgrades by mutableStateOf(DefenseUpgrades())
-        internal set
-
-    var coins: Int by mutableIntStateOf(0)
-        internal set
-
     var score: Int by mutableIntStateOf(0)
         internal set
-
-    var survivedSeconds: Float by mutableFloatStateOf(0f)
-        internal set
-
     var zombiesKilled: Int by mutableIntStateOf(0)
         internal set
-
+    var headshots: Int by mutableIntStateOf(0)
+        internal set
+    var survivedSeconds: Float by mutableFloatStateOf(0f)
+        internal set
     var selectedWeaponIndex: Int by mutableIntStateOf(0)
         internal set
 
-    var molotovCooldownRemaining: Float by mutableFloatStateOf(0f)
-        internal set
+    val wave: Int get() = 1 + zombiesKilled / Balance.KILLS_PER_WAVE
 
-    var waveClearCountdown: Float by mutableFloatStateOf(0f)
-        internal set
+    val weapons: List<Weapon> = WeaponType.values().map { Weapon(it) }
+    val currentWeapon: Weapon get() = weapons[selectedWeaponIndex]
 
-    var houseDamageFlash: Float by mutableFloatStateOf(0f)
-        internal set
-
-    var muzzleFlashTimer: Float by mutableFloatStateOf(0f)
-        internal set
-
-    // ---- Ammo runner: the girl who fetches ammo ----
+    // ---------------------------------------------------------------- the girl who brings ammo
     var runnerState: RunnerState by mutableStateOf(RunnerState.IDLE)
         internal set
-
-    /** Seconds until she can be sent again. */
     var runnerCooldown: Float by mutableFloatStateOf(0f)
         internal set
-
-    /** 0..1 progress of the current trip, for the HUD ring. */
+    /** 0..1 over the whole trip, for the button's progress ring. */
     var runnerTripProgress: Float by mutableFloatStateOf(0f)
         internal set
-
-    var runnerX: Float by mutableFloatStateOf(0f)
-        internal set
-
-    /** 1 = facing right (towards the zombies), -1 = facing left. */
-    var runnerFacing: Int = 1
+    var runnerX: Float = 0f
+        private set
+    /** +1 faces right, -1 faces left. */
+    var runnerFacing: Int = -1
         private set
     var runnerWalkPhase: Float = 0f
         private set
@@ -97,513 +69,413 @@ class GameEngine(
         private set
     var runnerDelivered: Boolean = false
         private set
-    var runnerTargetType: WeaponType = WeaponType.PISTOL
+    var runnerTargetType: WeaponType = WeaponType.REVOLVER
         private set
-    private var runnerTimer: Float = 0f
-    private var lastAmmoWarningMs: Long = 0L
+    private var runnerTimer = 0f
 
-    /** True while the delivered crate sits open on the porch. */
-    val runnerCrateOnFloor: Boolean
-        get() = runnerState == RunnerState.HANDING && runnerDelivered
+    /** She is inside the house while she fetches the ammo. */
+    val runnerHidden: Boolean get() = runnerState == RunnerState.FETCHING
 
-    // Complete Arsenal of 8 weapons!
-    val weapons: List<Weapon> = listOf(
-        Weapon(type = WeaponType.PISTOL, initialUnlocked = true),
-        Weapon(type = WeaponType.CROSSBOW, initialUnlocked = false),
-        Weapon(type = WeaponType.SHOTGUN, initialUnlocked = false),
-        Weapon(type = WeaponType.RIFLE, initialUnlocked = false),
-        Weapon(type = WeaponType.FLAMETHROWER, initialUnlocked = false),
-        Weapon(type = WeaponType.LAUNCHER, initialUnlocked = false),
-        Weapon(type = WeaponType.MINIGUN, initialUnlocked = false),
-        Weapon(type = WeaponType.SNIPER, initialUnlocked = false)
-    )
+    // ---------------------------------------------------------------- world, effects
+    val zombies = mutableListOf<Zombie>()
+    val particles = mutableListOf<Particle>()
+    val tracers = mutableListOf<Tracer>()
+    val grenades = mutableListOf<ThrownGrenade>()
 
-    val currentWeapon: Weapon
-        get() = weapons[selectedWeaponIndex]
+    var worldWidth: Float = 600f
+        private set
+    val floorY: Float = Balance.FLOOR_Y
+    val heroX: Float get() = worldWidth - Balance.HERO_FROM_RIGHT
+    val doorCx: Float get() = worldWidth - Balance.DOOR_FROM_RIGHT
+    val runnerDeliverX: Float get() = heroX + 60f
+    /** The shotgun cannot hit anything left of this line (the middle of the map). */
+    val shotgunLimitX: Float get() = worldWidth * (1f - Balance.SHOTGUN_RANGE_FRACTION)
 
-    // Screen Shake
+    /** Pivot of the arm and gun: her front shoulder. */
+    val shoulder: Offset
+        get() = Offset(
+            heroX + Balance.PX,
+            floorY - HeroGeometry.GROUND_ROW * Balance.PX + HeroGeometry.SHOULDER_ROW * Balance.PX
+        )
+
+    /** Aim angle in radians; positive aims downward. She always faces left. */
+    var aimAngle: Float = 0f
+        private set
+    var muzzleFlashTimer: Float = 0f
+        private set
+    var throwTimer: Float = 0f
+        private set
+    var shakeAmount: Float = 0f
+        private set
     var shakeX: Float = 0f
         private set
     var shakeY: Float = 0f
         private set
-    private var shakeIntensity: Float = 0f
-
-    // Field entities
-    val zombies = mutableListOf<Zombie>()
-    val projectiles = mutableListOf<Projectile>()
-    val particles = mutableListOf<Particle>()
-    val fireZones = mutableListOf<ActiveFireZone>()
-
-    // Wave spawning state
-    private var zombiesToSpawnInWave: Int = 0
-    var totalZombiesInWave: Int = 0
+    /** 1 right after she is caught, fades out. */
+    var caughtFlash: Float = 0f
         private set
-    private var timeSinceLastSpawn: Float = 0f
-    private var currentSpawnInterval: Float = 1.6f
-    private var nextZombieId: Long = 1L
-    private var nextProjectileId: Long = 1L
-    private var nextParticleId: Long = 1L
+    /** Seconds since she was caught. */
+    var gameOverTimer: Float = 0f
+        private set
 
-    val waveClearDuration: Float = 5.0f
-
-    private companion object {
-        const val MAX_PARTICLES = 650
-    }
-
-    // Roof Sentry Turret timer
-    private var timeSinceLastTurretShot: Float = 0f
-    private val molotovCooldownMax: Float = 7f
-
-    // Screen bounds
-    var screenWidth: Float = 1200f
-    var screenHeight: Float = 700f
-
-    val houseWidth: Float
-        get() = screenWidth * 0.22f
-
-    val barricadeX: Float
-        get() = houseWidth
-
-    val porchY: Float
-        get() = screenHeight * 0.64f
-
-    val waterTop: Float
-        get() = screenHeight * 0.52f
-
-    /** Shoulder pivot of the heroine's weapon. */
-    val gunAnchor: Offset
-        get() = Offset(houseWidth - 42f + 16f, porchY - 54f + 16f)
-
-    /** Muzzle position when the weapon points straight ahead (used for texts and effects). */
-    val playerMuzzleOffset: Offset
-        get() = muzzleFor(0f)
-
-    /** Where the barrel tip is when the weapon is aimed at [angle] radians. */
-    fun muzzleFor(angle: Float): Offset {
-        val a = gunAnchor
-        val reach = currentWeapon.type.barrelLength + 4f
-        return Offset(a.x + cos(angle) * reach, a.y + sin(angle) * reach)
-    }
-
-    val runnerHomeX: Float
-        get() = houseWidth * 0.30f
-
-    /** Where the girl stands to hand over the crate, just left of the heroine's seat. */
-    val runnerDeliverX: Float
-        get() = max(houseWidth - 108f, runnerHomeX + 24f)
-
-    val roofTurretOffset: Offset
-        get() = Offset(houseWidth * 0.42f, porchY - 145f)
+    private var clock = 0f
+    private var spawnTimer = 0f
+    private var nextId = 1L
+    private var lastWarningAt = -10f
 
     init {
         startNewRun()
     }
 
+    fun setWorldSize(widthPx: Float, heightPx: Float) {
+        if (widthPx > 0f && heightPx > 0f) {
+            worldWidth = Balance.WORLD_H * widthPx / heightPx
+            if (runnerState == RunnerState.IDLE) runnerX = doorCx
+        }
+    }
+
+    // ---------------------------------------------------------------- run control
     fun startNewRun() {
         status = GameStatus.PLAYING
-        wave = 1
-        defenseUpgrades = DefenseUpgrades()
-        houseHp = defenseUpgrades.maxHouseHp
-        coins = 0
         score = 0
-        survivedSeconds = 0f
         zombiesKilled = 0
+        headshots = 0
+        survivedSeconds = 0f
         selectedWeaponIndex = 0
-        waveClearCountdown = 0f
-        houseDamageFlash = 0f
-        timeSinceLastTurretShot = 0f
-
-        // Reset weapons
-        weapons.forEachIndexed { index, weapon ->
-            weapon.isUnlocked = (index == 0)
-            weapon.level = 1
-            weapon.resetAmmo()
-            weapon.isReloading = false
-            weapon.reloadProgress = 0f
-            weapon.lastFireTime = 0L
-        }
-
+        weapons.forEach { it.reset() }
         zombies.clear()
-        projectiles.clear()
         particles.clear()
-        fireZones.clear()
-        molotovCooldownRemaining = 0f
+        tracers.clear()
+        grenades.clear()
+        clock = 0f
+        spawnTimer = Balance.FIRST_SPAWN_DELAY
+        aimAngle = 0f
+        muzzleFlashTimer = 0f
+        throwTimer = 0f
+        shakeAmount = 0f
+        shakeX = 0f
+        shakeY = 0f
+        caughtFlash = 0f
+        gameOverTimer = 0f
         runnerState = RunnerState.IDLE
         runnerCooldown = 0f
         runnerTripProgress = 0f
         runnerCarrying = false
         runnerDelivered = false
-        runnerFacing = 1
-        runnerX = runnerHomeX
-        shakeIntensity = 0f
-        shakeX = 0f
-        shakeY = 0f
-
-        initWave(1)
+        runnerFacing = -1
+        runnerWalkPhase = 0f
+        runnerTimer = 0f
+        runnerX = doorCx
     }
 
-    fun initWave(waveNumber: Int) {
-        wave = waveNumber
-        status = GameStatus.PLAYING
-        waveClearCountdown = 0f
-
-        totalZombiesInWave = Balance.WAVE_BASE_ZOMBIES + (wave * Balance.WAVE_ZOMBIES_PER_WAVE) +
-            min(wave * Balance.WAVE_EXTRA_PER_WAVE, Balance.WAVE_EXTRA_CAP)
-        zombiesToSpawnInWave = totalZombiesInWave
-        currentSpawnInterval = (Balance.SPAWN_INTERVAL_START - (min(wave, 25) * Balance.SPAWN_INTERVAL_STEP))
-            .coerceAtLeast(Balance.SPAWN_INTERVAL_MIN)
-        timeSinceLastSpawn = currentSpawnInterval * 0.5f
-
-        spawnFloatingText(
-            screenWidth * 0.5f,
-            screenHeight * 0.3f,
-            if (wave % 5 == 0) "¡ALERTA: OLEADA BOSS #$wave!" else "¡OLEADA $wave!",
-            if (wave % 5 == 0) Color(0xFFFF1744) else Color(0xFFFFD54F),
-            life = 1.9f,
-            rise = -22f
-        )
+    fun pauseGame() {
+        if (status == GameStatus.PLAYING) status = GameStatus.PAUSED
     }
 
+    fun resumeGame() {
+        if (status == GameStatus.PAUSED) status = GameStatus.PLAYING
+    }
+
+    // ---------------------------------------------------------------- weapons
     fun selectWeapon(index: Int) {
-        if (index in weapons.indices && weapons[index].isUnlocked) {
-            selectedWeaponIndex = index
-            soundManager.playReload()
-        }
+        if (status != GameStatus.PLAYING || index !in weapons.indices || index == selectedWeaponIndex) return
+        currentWeapon.cancelReload()
+        selectedWeaponIndex = index
+        soundManager.playReload()
     }
 
-    /** Starts reloading the selected weapon from the reserve. Returns true if a reload began. */
-    fun manualReload(): Boolean {
+    /** One press loads ONE round. Filling the gun takes several presses. Returns true if a reload began. */
+    fun reloadOne(): Boolean {
         if (status != GameStatus.PLAYING) return false
         val w = currentWeapon
-        if (w.isReloading || w.currentAmmo >= w.maxAmmo) return false
+        if (w.isReloading || w.currentAmmo >= w.magazine) return false
         if (w.reserveAmmo <= 0) {
-            warnNoAmmo("¡SIN MUNICIÓN!")
+            warn("¡SIN BALAS!")
             return false
         }
-        startReload(w)
+        w.isReloading = true
+        w.reloadProgress = 0f
         return true
     }
 
-    private fun warnNoAmmo(text: String) {
-        val now = System.currentTimeMillis()
-        if (now - lastAmmoWarningMs < 1000L) return
-        lastAmmoWarningMs = now
-        spawnFloatingText(playerMuzzleOffset.x, playerMuzzleOffset.y - 40f, text, Color(0xFFFF5252))
+    /**
+     * Points the weapon at a world position without firing. The barrel tip moves as the arm swings around
+     * her shoulder, so instead of a simple atan2 the angle is searched until the shot really passes through
+     * the finger (this also behaves for targets very close to her).
+     */
+    fun aimAt(wx: Float, wy: Float) {
+        // Height at which a shot fired with this angle crosses x = wx, minus the height that was asked for
+        fun miss(a: Float): Float {
+            val o = muzzle(a)
+            return o.y + tan(a) * max(o.x - wx, 30f) - wy
+        }
+        var lo = -MAX_AIM
+        var hi = MAX_AIM
+        aimAngle = when {
+            miss(lo) >= 0f -> lo
+            miss(hi) <= 0f -> hi
+            else -> {
+                repeat(16) {
+                    val mid = (lo + hi) / 2f
+                    if (miss(mid) > 0f) hi = mid else lo = mid
+                }
+                (lo + hi) / 2f
+            }
+        }
     }
 
-    private fun startReload(weapon: Weapon) {
-        weapon.isReloading = true
-        weapon.reloadProgress = 0f
-        soundManager.playReload()
-        spawnFloatingText(playerMuzzleOffset.x, playerMuzzleOffset.y - 40f, "RECARGA", Color(0xFFFFD54F))
-    }
-
-    fun onTouchShoot(touchX: Float, touchY: Float) {
+    /** Aims at (wx, wy) and fires the selected weapon if it can. Coordinates are in world units. */
+    fun onTouchShoot(wx: Float, wy: Float) {
         if (status != GameStatus.PLAYING) return
+        aimAt(wx, wy)
 
-        // Only block taps if touching the top-left weapon selector HUD column
-        if (touchX < 150f && touchY < 300f) return
-
-        val now = System.currentTimeMillis()
-        val weapon = currentWeapon
-
-        // If auto-reloading but we have bullets, allow instant interruption to fire!
-        if (weapon.isReloading) {
-            if (weapon.currentAmmo > 0) {
-                weapon.isReloading = false
-                weapon.reloadProgress = 0f
-            } else {
-                return
-            }
+        val w = currentWeapon
+        if (w.cooldownLeft > 0f) return
+        if (w.isReloading) {
+            if (w.currentAmmo > 0) w.cancelReload() else return
         }
-
-        if (weapon.currentAmmo <= 0) {
-            // Reloading is manual now: tell her what is wrong instead of doing it for her
-            warnNoAmmo(if (weapon.reserveAmmo > 0) "¡RECARGA!" else "¡SIN MUNICIÓN!")
+        if (w.currentAmmo <= 0) {
+            warn(if (w.reserveAmmo > 0) "¡RECARGA!" else "¡SIN BALAS!")
+            w.cooldownLeft = 0.25f
             return
         }
 
-        if (now - weapon.lastFireTime < weapon.cooldownMs) {
-            return
+        when (w.type) {
+            WeaponType.REVOLVER -> fireRevolver(w)
+            WeaponType.SHOTGUN -> fireShotgun(w)
+            WeaponType.GRENADE -> throwGrenade(w, wx)
         }
+    }
 
-        // Fire!
-        weapon.lastFireTime = now
-        weapon.currentAmmo--
-
-        // Aim from the shoulder pivot so the shot leaves exactly from the barrel tip
-        val anchor = gunAnchor
-        val dx = (touchX - anchor.x).coerceAtLeast(3f)
-        val dy = touchY - anchor.y
-        // Expanded vertical aim angle: from -48° (-0.85 rad) upwards to +86° (+1.50 rad) downwards into water!
-        val baseAngle = atan2(dy, dx).coerceIn(-0.85f, 1.50f)
-        val origin = muzzleFor(baseAngle)
-
-        soundManager.playShotSound(weapon.type)
-        muzzleFlashTimer = 0.08f
-        addMuzzleFlash(origin.x, origin.y)
-        if (weapon.type != WeaponType.FLAMETHROWER &&
-            weapon.type != WeaponType.LAUNCHER &&
-            weapon.type != WeaponType.CROSSBOW
-        ) {
-            spawnShellCasing(anchor.x + cos(baseAngle) * 14f, anchor.y + sin(baseAngle) * 14f - 2f)
-        }
-        triggerScreenShake(
-            when (weapon.type) {
-                WeaponType.LAUNCHER -> 9f
-                WeaponType.SNIPER -> 8f
-                WeaponType.SHOTGUN -> 5f
-                else -> 3f
-            }
+    /** Where the barrel tip is for a given aim angle. */
+    fun muzzle(angle: Float = aimAngle, type: WeaponType = currentWeapon.type): Offset {
+        val off = HeroGeometry.muzzleOffset(type)
+        val phi = -angle
+        return Offset(
+            shoulder.x + off.x * cos(phi) - off.y * sin(phi),
+            shoulder.y + off.x * sin(phi) + off.y * cos(phi)
         )
-
-        // Projectile creation for all 8 weapons
-        when (weapon.type) {
-            WeaponType.PISTOL -> {
-                val speed = weapon.type.projectileSpeed
-                projectiles.add(
-                    Projectile(
-                        id = nextProjectileId++,
-                        type = ProjectileType.BULLET,
-                        x = origin.x,
-                        y = origin.y,
-                        vx = cos(baseAngle) * speed,
-                        vy = sin(baseAngle) * speed,
-                        damage = weapon.damage,
-                        radius = 4.5f
-                    )
-                )
-            }
-            WeaponType.CROSSBOW -> {
-                val speed = weapon.type.projectileSpeed
-                projectiles.add(
-                    Projectile(
-                        id = nextProjectileId++,
-                        type = ProjectileType.BOLT,
-                        x = origin.x,
-                        y = origin.y,
-                        vx = cos(baseAngle) * speed,
-                        vy = sin(baseAngle) * speed,
-                        damage = weapon.damage,
-                        radius = 5f,
-                        pierceCount = 3
-                    )
-                )
-            }
-            WeaponType.SHOTGUN -> {
-                val pelletCount = 6
-                val spreadStep = 0.08f
-                val startSpread = -((pelletCount - 1) / 2f) * spreadStep
-                for (i in 0 until pelletCount) {
-                    val angle = baseAngle + startSpread + (i * spreadStep) + (Random.nextFloat() * 0.03f - 0.015f)
-                    val speed = weapon.type.projectileSpeed * (0.95f + Random.nextFloat() * 0.1f)
-                    projectiles.add(
-                        Projectile(
-                            id = nextProjectileId++,
-                            type = ProjectileType.PELLET,
-                            x = origin.x,
-                            y = origin.y,
-                            vx = cos(angle) * speed,
-                            vy = sin(angle) * speed,
-                            damage = weapon.damage,
-                            radius = 4f
-                        )
-                    )
-                }
-            }
-            WeaponType.RIFLE -> {
-                val spread = (Random.nextFloat() - 0.5f) * 0.07f
-                val angle = baseAngle + spread
-                val speed = weapon.type.projectileSpeed
-                projectiles.add(
-                    Projectile(
-                        id = nextProjectileId++,
-                        type = ProjectileType.BULLET,
-                        x = origin.x,
-                        y = origin.y,
-                        vx = cos(angle) * speed,
-                        vy = sin(angle) * speed,
-                        damage = weapon.damage,
-                        radius = 4.5f
-                    )
-                )
-            }
-            WeaponType.FLAMETHROWER -> {
-                for (i in 0..1) {
-                    val spread = (Random.nextFloat() - 0.5f) * 0.14f
-                    val angle = baseAngle + spread
-                    val speed = weapon.type.projectileSpeed * (0.85f + Random.nextFloat() * 0.3f)
-                    projectiles.add(
-                        Projectile(
-                            id = nextProjectileId++,
-                            type = ProjectileType.FLAME,
-                            x = origin.x,
-                            y = origin.y,
-                            vx = cos(angle) * speed,
-                            vy = sin(angle) * speed,
-                            damage = weapon.damage,
-                            radius = 8f,
-                            lifetime = 0.55f,
-                            pierceCount = 2
-                        )
-                    )
-                }
-            }
-            WeaponType.LAUNCHER -> {
-                val speed = weapon.type.projectileSpeed
-                projectiles.add(
-                    Projectile(
-                        id = nextProjectileId++,
-                        type = ProjectileType.GRENADE,
-                        x = origin.x,
-                        y = origin.y,
-                        vx = cos(baseAngle) * speed,
-                        vy = sin(baseAngle) * speed,
-                        damage = weapon.damage,
-                        radius = 8f,
-                        isExplosive = true,
-                        blastRadius = 150f
-                    )
-                )
-            }
-            WeaponType.MINIGUN -> {
-                val spread = (Random.nextFloat() - 0.5f) * 0.09f
-                val angle = baseAngle + spread
-                val speed = weapon.type.projectileSpeed
-                projectiles.add(
-                    Projectile(
-                        id = nextProjectileId++,
-                        type = ProjectileType.BULLET,
-                        x = origin.x,
-                        y = origin.y,
-                        vx = cos(angle) * speed,
-                        vy = sin(angle) * speed,
-                        damage = weapon.damage,
-                        radius = 4f
-                    )
-                )
-            }
-            WeaponType.SNIPER -> {
-                val speed = weapon.type.projectileSpeed
-                projectiles.add(
-                    Projectile(
-                        id = nextProjectileId++,
-                        type = ProjectileType.SNIPER_BULLET,
-                        x = origin.x,
-                        y = origin.y,
-                        vx = cos(baseAngle) * speed,
-                        vy = sin(baseAngle) * speed,
-                        damage = weapon.damage,
-                        radius = 6f,
-                        pierceCount = 4
-                    )
-                )
-            }
-        }
-
-        if (weapon.currentAmmo <= 0) {
-            warnNoAmmo(if (weapon.reserveAmmo > 0) "¡RECARGA!" else "¡SIN MUNICIÓN!")
-        }
     }
 
-    fun throwMolotov(targetX: Float = screenWidth * 0.6f, targetY: Float = screenHeight * 0.65f) {
-        if (status != GameStatus.PLAYING) return
-        if (defenseUpgrades.molotovCount <= 0 || molotovCooldownRemaining > 0f) return
+    private class RayHit(val zombie: Zombie, val x: Float, val y: Float, val dist: Float, val head: Boolean)
 
-        defenseUpgrades.molotovCount--
-        molotovCooldownRemaining = molotovCooldownMax
+    /** First living zombie a ray going left from (ox, oy) with slope angle `angle` touches, not past limitX. */
+    private fun traceRay(ox: Float, oy: Float, angle: Float, limitX: Float): RayHit? {
+        val dx = -cos(angle)
+        val dy = sin(angle)
+        var best: RayHit? = null
+        for (z in zombies) {
+            if (!z.isAlive) continue
+            val hx = z.x + 10f * z.type.scale
+            if (hx > ox || hx < limitX) continue
+            val t = (hx - ox) / dx
+            if (t < 0f) continue
+            val y = oy + dy * t
+            val top = floorY - z.height
+            if (y < top || y > floorY) continue
+            if (best == null || t < best.dist) {
+                best = RayHit(z, hx, y, t, y < top + z.height * Balance.HEAD_FRACTION)
+            }
+        }
+        return best
+    }
 
+    private fun fireRevolver(w: Weapon) {
+        w.currentAmmo -= 1
+        w.cooldownLeft = w.type.fireCooldown
+        val o = muzzle()
+        muzzleFlashTimer = MUZZLE_FLASH_TIME
+        soundManager.playShotSound(w.type)
+
+        val hit = traceRay(o.x, o.y, aimAngle, -50f)
+        val endX = hit?.x ?: -50f
+        val endY = hit?.y ?: (o.y + tan(aimAngle) * (o.x - endX))
+        tracers.add(Tracer(o.x, o.y, endX, endY))
+        if (hit != null) {
+            damage(hit.zombie, Balance.REVOLVER_DAMAGE * (if (hit.head) Balance.HEADSHOT_MULTIPLIER else 1f), hit.head, hit.x, hit.y)
+        }
+        sparks(o.x - 3f, o.y, 4)
+        addShake(1.2f)
+    }
+
+    private fun fireShotgun(w: Weapon) {
+        w.currentAmmo -= 1
+        w.cooldownLeft = w.type.fireCooldown
+        val o = muzzle()
+        muzzleFlashTimer = MUZZLE_FLASH_TIME * 1.6f
+        soundManager.playShotSound(w.type)
+
+        val perPellet = Balance.SHOTGUN_DAMAGE_PER_SHELL / Balance.SHOTGUN_PELLETS
+        val limit = shotgunLimitX
+        repeat(Balance.SHOTGUN_PELLETS) {
+            val a = aimAngle + (Random.nextFloat() + Random.nextFloat() - 1f) * Balance.SHOTGUN_SPREAD * 1.5f
+            val hit = traceRay(o.x, o.y, a, limit)
+            val endX = hit?.x ?: limit
+            val endY = hit?.y ?: (o.y + tan(a) * (o.x - endX))
+            tracers.add(Tracer(o.x, o.y, endX, endY, life = 0.05f, color = Color(0xFFFFD27A)))
+            if (hit != null) {
+                hit.zombie.stagger = 0.45f
+                damage(hit.zombie, perPellet * (if (hit.head) Balance.HEADSHOT_MULTIPLIER else 1f), hit.head, hit.x, hit.y)
+            }
+        }
+        smoke(o.x - 6f, o.y, 5)
+        sparks(o.x - 3f, o.y, 8)
+        // spent shell pops out
+        particles.add(
+            Particle(ParticleKind.CASING, shoulder.x - 20f, shoulder.y - 4f, 40f + Random.nextFloat() * 20f, -70f, 0.9f,
+                Color(0xFFC62828), size = 4f, gravity = 380f)
+        )
+        addShake(3.5f)
+    }
+
+    private fun throwGrenade(w: Weapon, wx: Float) {
+        w.currentAmmo -= 1
+        w.cooldownLeft = w.type.fireCooldown
+        throwTimer = 0.3f
+        val from = muzzle(0f, WeaponType.GRENADE)
+        val targetX = wx.coerceIn(20f, heroX - Balance.GRENADE_MAX_DISTANCE_FROM_HERO)
+        val dist = abs(from.x - targetX)
+        val flight = (0.55f + dist / 700f).coerceIn(0.6f, 1.15f)
+        grenades.add(ThrownGrenade(from.x, from.y, targetX, floorY - 6f, flight))
+        soundManager.playShotSound(w.type)
+    }
+
+    private fun explode(x: Float, y: Float) {
         soundManager.playExplosion()
-        fireZones.add(ActiveFireZone(x = targetX.coerceAtLeast(barricadeX + 60f), y = targetY))
-        spawnExplosion(targetX, targetY, isMolotov = true)
-        spawnFloatingText(targetX, targetY - 40f, "¡FUEGO!", Color(0xFFFF5722))
-    }
-
-    /** Throws a molotov at the densest cluster of zombies (or the middle of the swamp if none). */
-    fun throwMolotovAtThreat() {
-        val minWaterY = waterTop + 20f
-        val candidates = zombies.filter { it.x < screenWidth - 20f }
-        val target = candidates.maxByOrNull { z ->
-            candidates.count { o -> hypot(o.x - z.x, o.y - z.y) <= 110f } * 1000f - z.x
+        addShake(9f)
+        for (z in zombies.toList()) {
+            if (!z.isAlive) continue
+            if (abs(z.x + 4f * z.type.scale - x) <= Balance.GRENADE_RADIUS + 8f * z.type.scale) {
+                damage(z, Balance.GRENADE_DAMAGE, false, z.x, floorY - z.height * 0.5f)
+            }
         }
-        val tx = (target?.x ?: (screenWidth * 0.6f)) - 20f
-        val ty = (target?.y ?: (screenHeight * 0.65f)).coerceIn(minWaterY, screenHeight * 0.88f)
-        throwMolotov(tx, ty)
+        repeat(34) {
+            val a = Random.nextFloat() * (2f * PI.toFloat())
+            val sp = 40f + Random.nextFloat() * 170f
+            particles.add(
+                Particle(
+                    ParticleKind.FIRE, x + (Random.nextFloat() - 0.5f) * 30f, y - 6f,
+                    cos(a) * sp, sin(a) * sp * 0.6f - 50f, 0.45f + Random.nextFloat() * 0.35f,
+                    if (Random.nextBoolean()) Color(0xFFFFB300) else Color(0xFFFF5722),
+                    size = 4f + Random.nextFloat() * 5f
+                )
+            )
+        }
+        smoke(x, y - 10f, 12)
+        sparks(x, y - 10f, 14)
+        spawnText(x, y - 40f, "¡BOOM!", Color(0xFFFFEB3B), 0.9f)
     }
 
-    /** Sends the girl to fetch ammo for the weapon that is selected right now. */
+    // ---------------------------------------------------------------- damage and kills
+    private fun damage(z: Zombie, amount: Float, head: Boolean, hx: Float, hy: Float) {
+        if (!z.isAlive) return
+        z.hp -= amount
+        z.hitFlash = 0.09f
+        blood(hx, hy, if (head) 9 else 5)
+        if (z.hp <= 0f) {
+            kill(z, head)
+        } else {
+            soundManager.playZombieHit()
+            if (head) spawnText(hx, hy - 10f, "¡CABEZA!", Color(0xFFFF5252), 0.7f)
+        }
+    }
+
+    private fun kill(z: Zombie, head: Boolean) {
+        z.dying = true
+        z.deathTimer = 0f
+        z.headshotDeath = head
+        zombiesKilled += 1
+        var points = z.type.score
+        if (head) {
+            points += Balance.SCORE_PER_KILL_HEADSHOT_BONUS
+            headshots += 1
+        }
+        score += points
+        soundManager.playZombieDeath()
+        blood(z.x + 6f, floorY - z.height * 0.7f, if (head) 16 else 10)
+        spawnText(z.x, floorY - z.height - 6f, if (head) "¡CABEZA! +$points" else "+$points", if (head) Color(0xFFFF5252) else Color(0xFFFFF59D), 0.9f)
+        if (zombiesKilled % Balance.KILLS_PER_WAVE == 0) {
+            soundManager.playWaveCompleted()
+            spawnText(worldWidth * 0.5f, 110f, "OLEADA $wave", Color(0xFFFFFFFF), 1.6f)
+        }
+    }
+
+    private fun caught(z: Zombie) {
+        status = GameStatus.GAME_OVER
+        gameOverTimer = 0f
+        caughtFlash = 1f
+        addShake(10f)
+        blood(heroX, floorY - 50f, 22)
+        soundManager.playHouseDamage()
+        soundManager.playGameOver()
+        onGameOver(survivedSeconds.toInt(), wave, zombiesKilled, score)
+    }
+
+    // ---------------------------------------------------------------- the ammo girl
+    /** Sends her to fetch ammo for the weapon that is equipped right now. Returns true if she set off. */
     fun callAmmoRunner(): Boolean {
-        if (status != GameStatus.PLAYING && status != GameStatus.WAVE_CLEARED) return false
+        if (status != GameStatus.PLAYING) return false
         if (runnerState != RunnerState.IDLE || runnerCooldown > 0f) return false
-        val weapon = currentWeapon
-        if (weapon.reserveSpace <= 0) {
-            spawnFloatingText(runnerHomeX, porchY - 90f, "Reserva llena", Color(0xFF9CCC65))
+        val w = currentWeapon
+        if (w.reserveSpace <= 0) {
+            spawnText(doorCx, floorY - 112f, "Reserva llena", Color(0xFF9CCC65), 1.0f)
             return false
         }
-        runnerTargetType = weapon.type
-        runnerState = RunnerState.GOING
+        runnerTargetType = w.type
+        runnerState = RunnerState.FETCHING
+        runnerTimer = Balance.RUNNER_FETCH_SECONDS
         runnerTripProgress = 0f
         runnerCarrying = false
         runnerDelivered = false
-        spawnFloatingText(runnerHomeX, porchY - 90f, "¡Voy por balas!", Color(0xFF80CBC4))
+        spawnText(doorCx, floorY - 112f, "¡Voy por ${ammoWord(w.type)}!", Color(0xFF80CBC4), 1.1f)
         return true
     }
 
-    private fun updateRunner(dt: Float) {
-        if (runnerCooldown > 0f) {
-            runnerCooldown = (runnerCooldown - dt).coerceAtLeast(0f)
-        }
+    private fun ammoWord(type: WeaponType) = when (type) {
+        WeaponType.REVOLVER -> "balas"
+        WeaponType.SHOTGUN -> "cartuchos"
+        WeaponType.GRENADE -> "granadas"
+    }
 
-        val home = runnerHomeX
+    private fun updateRunner(dt: Float) {
+        if (runnerCooldown > 0f) runnerCooldown = (runnerCooldown - dt).coerceAtLeast(0f)
+        val home = doorCx
         val deliver = runnerDeliverX
-        val away = -40f
         val speed = Balance.RUNNER_SPEED
 
         when (runnerState) {
             RunnerState.IDLE -> {
                 runnerX = home
-                runnerFacing = 1
-            }
-
-            RunnerState.GOING -> {
                 runnerFacing = -1
-                runnerX = max(away, runnerX - speed * dt)
-                runnerWalkPhase += dt * 9f
-                runnerTripProgress = 0.22f * ((home - runnerX) / (home - away)).coerceIn(0f, 1f)
-                if (runnerX <= away) {
-                    runnerState = RunnerState.FETCHING
-                    runnerTimer = Balance.RUNNER_FETCH_SECONDS
-                }
             }
 
             RunnerState.FETCHING -> {
+                runnerX = home
                 runnerTimer -= dt
-                runnerTripProgress = 0.22f + 0.28f * (1f - (runnerTimer / Balance.RUNNER_FETCH_SECONDS).coerceIn(0f, 1f))
+                runnerTripProgress = 0.6f * (1f - (runnerTimer / Balance.RUNNER_FETCH_SECONDS).coerceIn(0f, 1f))
                 if (runnerTimer <= 0f) {
                     runnerCarrying = true
-                    runnerFacing = 1
+                    runnerFacing = -1
                     runnerState = RunnerState.BRINGING
                 }
             }
 
             RunnerState.BRINGING -> {
-                runnerFacing = 1
-                runnerX = min(deliver, runnerX + speed * Balance.RUNNER_LOADED_SPEED_FACTOR * dt)
-                runnerWalkPhase += dt * 8f
-                runnerTripProgress = 0.5f + 0.42f * ((runnerX - away) / (deliver - away)).coerceIn(0f, 1f)
-                if (runnerX >= deliver) {
+                runnerFacing = -1
+                runnerX = max(deliver, runnerX - speed * dt)
+                runnerWalkPhase += dt * 9f
+                runnerTripProgress = 0.6f + 0.25f * ((home - runnerX) / (home - deliver)).coerceIn(0f, 1f)
+                if (runnerX <= deliver) {
                     runnerState = RunnerState.HANDING
                     runnerTimer = Balance.RUNNER_HAND_SECONDS
                 }
             }
 
             RunnerState.HANDING -> {
-                runnerFacing = 1
+                runnerFacing = -1
                 runnerTimer -= dt
-                runnerTripProgress = 0.92f + 0.08f * (1f - (runnerTimer / Balance.RUNNER_HAND_SECONDS).coerceIn(0f, 1f))
-                if (!runnerDelivered && runnerTimer <= Balance.RUNNER_HAND_SECONDS * 0.5f) {
-                    deliverRunnerAmmo()
-                }
+                runnerTripProgress = 0.85f + 0.15f * (1f - (runnerTimer / Balance.RUNNER_HAND_SECONDS).coerceIn(0f, 1f))
+                if (!runnerDelivered && runnerTimer <= Balance.RUNNER_HAND_SECONDS * 0.5f) deliverRunnerAmmo()
                 if (runnerTimer <= 0f) {
                     runnerCarrying = false
                     runnerState = RunnerState.HOMING
@@ -611,994 +483,219 @@ class GameEngine(
             }
 
             RunnerState.HOMING -> {
-                runnerFacing = -1
-                runnerX = max(home, runnerX - speed * dt)
+                runnerFacing = 1
+                runnerX = min(home, runnerX + speed * dt)
                 runnerWalkPhase += dt * 9f
                 runnerTripProgress = 1f
-                if (runnerX <= home) {
-                    runnerState = RunnerState.IDLE
-                }
+                if (runnerX >= home) runnerState = RunnerState.IDLE
             }
         }
     }
 
+    /** She brings ammo ONLY for the weapon that was equipped when the button was pressed. */
     private fun deliverRunnerAmmo() {
         runnerDelivered = true
         runnerCooldown = Balance.RUNNER_COOLDOWN_SECONDS
-        val weapon = weapons.firstOrNull { it.type == runnerTargetType } ?: currentWeapon
-        val amount = (weapon.maxAmmo * Balance.RUNNER_DELIVERY_MAGS).roundToInt().coerceAtLeast(1)
-        val added = weapon.addReserve(amount)
+        val w = weapons.first { it.type == runnerTargetType }
+        val added = w.addReserve(w.type.delivery)
         soundManager.playReload()
-        spawnFloatingText(
-            runnerDeliverX + 8f,
-            porchY - 96f,
-            if (added > 0) "+$added balas" else "Reserva llena",
-            Color(0xFF9CCC65),
-            life = 1.3f
+        spawnText(
+            runnerDeliverX, floorY - 112f,
+            if (added > 0) "+$added ${ammoWord(w.type)}" else "Reserva llena",
+            Color(0xFF9CCC65), 1.3f
         )
     }
 
-    fun repairHouse(): Boolean {
-        if (coins >= defenseUpgrades.repairHpCost && houseHp < defenseUpgrades.maxHouseHp) {
-            coins -= defenseUpgrades.repairHpCost
-            houseHp = (houseHp + 50f).coerceAtMost(defenseUpgrades.maxHouseHp)
-            soundManager.playReload()
-            spawnFloatingText(barricadeX, screenHeight * 0.5f, "+50 HP", Color(0xFF4CAF50))
-            return true
-        }
-        return false
-    }
-
-    fun repairHouseFull(): Boolean {
-        if (coins >= defenseUpgrades.fullRepairCost && houseHp < defenseUpgrades.maxHouseHp) {
-            coins -= defenseUpgrades.fullRepairCost
-            houseHp = defenseUpgrades.maxHouseHp
-            soundManager.playReload()
-            spawnFloatingText(barricadeX, screenHeight * 0.5f, "HP MAX", Color(0xFF4CAF50))
-            return true
-        }
-        return false
-    }
-
-    fun upgradeMaxHp(): Boolean {
-        val cost = defenseUpgrades.maxHpUpgradeCost
-        if (coins >= cost && defenseUpgrades.maxHouseHpLevel < 10) {
-            coins -= cost
-            defenseUpgrades.maxHouseHpLevel++
-            houseHp = (houseHp + 40f).coerceAtMost(defenseUpgrades.maxHouseHp)
-            soundManager.playWaveCompleted()
-            return true
-        }
-        return false
-    }
-
-    fun upgradeBarbedWire(): Boolean {
-        val cost = defenseUpgrades.barbedWireUpgradeCost
-        if (coins >= cost && defenseUpgrades.barbedWireLevel < 5) {
-            coins -= cost
-            defenseUpgrades.barbedWireLevel++
-            soundManager.playReload()
-            return true
-        }
-        return false
-    }
-
-    fun upgradeTurret(): Boolean {
-        val cost = defenseUpgrades.turretUpgradeCost
-        if (coins >= cost && defenseUpgrades.turretLevel < 5) {
-            coins -= cost
-            defenseUpgrades.turretLevel++
-            soundManager.playWaveCompleted()
-            return true
-        }
-        return false
-    }
-
-    fun buyMolotov(): Boolean {
-        if (coins >= defenseUpgrades.molotovBuyCost && defenseUpgrades.molotovCount < 5) {
-            coins -= defenseUpgrades.molotovBuyCost
-            defenseUpgrades.molotovCount++
-            soundManager.playReload()
-            return true
-        }
-        return false
-    }
-
-    fun unlockWeapon(weaponType: WeaponType): Boolean {
-        val weapon = weapons.find { it.type == weaponType } ?: return false
-        if (!weapon.isUnlocked && coins >= weapon.type.unlockCost) {
-            coins -= weapon.type.unlockCost
-            weapon.isUnlocked = true
-            soundManager.playWaveCompleted()
-            selectedWeaponIndex = weapons.indexOf(weapon)
-            spawnFloatingText(playerMuzzleOffset.x, playerMuzzleOffset.y - 45f, "¡${weapon.type.title.split(" ").first()} DESBLOQUEADA!", Color(0xFFFFD54F))
-            return true
-        }
-        return false
-    }
-
-    fun upgradeWeapon(weaponType: WeaponType): Boolean {
-        val weapon = weapons.find { it.type == weaponType } ?: return false
-        if (weapon.isUnlocked && weapon.level < weapon.maxLevel && coins >= weapon.upgradeCost) {
-            coins -= weapon.upgradeCost
-            weapon.level++
-            soundManager.playWaveCompleted()
-            return true
-        }
-        return false
-    }
-
-    var isShopOpen: Boolean by mutableStateOf(false)
-        private set
-
-    var wasBetweenWavesWhenShopOpened: Boolean by mutableStateOf(false)
-        private set
-
-    private var previousStatusBeforeShop: GameStatus = GameStatus.PLAYING
-
-    fun openShop() {
-        if (!isShopOpen) {
-            wasBetweenWavesWhenShopOpened = (status == GameStatus.WAVE_CLEARED)
-            previousStatusBeforeShop = status
-            isShopOpen = true
-            status = GameStatus.PAUSED
-        }
-    }
-
-    fun closeShop() {
-        if (isShopOpen) {
-            isShopOpen = false
-            status = if (previousStatusBeforeShop == GameStatus.PLAYING) {
-                GameStatus.PLAYING
-            } else if (previousStatusBeforeShop == GameStatus.WAVE_CLEARED) {
-                GameStatus.WAVE_CLEARED
-            } else {
-                previousStatusBeforeShop
-            }
-        }
-    }
-
-    fun continueToNextWave() {
-        if (status == GameStatus.WAVE_CLEARED || wasBetweenWavesWhenShopOpened) {
-            wasBetweenWavesWhenShopOpened = false
-            initWave(wave + 1)
-        }
-    }
-
-    fun pauseGame() {
-        if (status == GameStatus.PLAYING) {
-            status = GameStatus.PAUSED
-        }
-    }
-
-    fun resumeGame() {
-        if (status == GameStatus.PAUSED) {
-            status = GameStatus.PLAYING
-        }
-    }
-
+    // ---------------------------------------------------------------- the main loop
     fun update(dt: Float) {
-        if (status == GameStatus.PAUSED || status == GameStatus.GAME_OVER || isShopOpen) return
+        if (status == GameStatus.PAUSED) return
+
+        if (status == GameStatus.GAME_OVER) {
+            gameOverTimer += dt
+            caughtFlash = (caughtFlash - dt * 0.6f).coerceAtLeast(0f)
+            updateEffects(dt)
+            return
+        }
 
         survivedSeconds += dt
+        clock += dt
 
-        // Molotov cooldown
-        if (molotovCooldownRemaining > 0f) {
-            molotovCooldownRemaining = (molotovCooldownRemaining - dt).coerceAtLeast(0f)
+        // weapons: cooldowns and the one-round-at-a-time reload
+        for (w in weapons) {
+            if (w.cooldownLeft > 0f) w.cooldownLeft = (w.cooldownLeft - dt).coerceAtLeast(0f)
+            if (w.isReloading) {
+                w.reloadProgress += dt / w.type.reloadSeconds
+                if (w.reloadProgress >= 1f) {
+                    w.cancelReload()
+                    if (w.loadOne()) soundManager.playReload()
+                }
+            }
         }
 
         updateRunner(dt)
+        updateSpawning(dt)
+        updateZombies(dt)
+        updateGrenades(dt)
+        updateEffects(dt)
+    }
 
-        // Damage flash decay
-        if (houseDamageFlash > 0f) {
-            houseDamageFlash = (houseDamageFlash - dt).coerceAtLeast(0f)
+    private fun updateSpawning(dt: Float) {
+        spawnTimer -= dt
+        if (spawnTimer > 0f) return
+        // do not spawn on top of another zombie
+        if (zombies.any { it.isAlive && it.x < Balance.SPAWN_X + 70f }) return
+
+        val w = wave
+        val roll = Random.nextFloat()
+        val runnerChance = if (w >= Balance.RUNNER_FROM_WAVE) min(0.35f, 0.06f * (w - 1)) else 0f
+        val bruteChance = if (w >= Balance.BRUTE_FROM_WAVE) min(0.22f, 0.04f * (w - 2)) else 0f
+        val type = when {
+            roll < bruteChance -> ZombieType.BRUTE
+            roll < bruteChance + runnerChance -> ZombieType.RUNNER
+            else -> ZombieType.NORMAL
+        }
+        val speedMult = min(Balance.SPEED_MULT_CAP, 1f + Balance.SPEED_GROWTH_PER_WAVE * (w - 1))
+        zombies.add(Zombie(nextId++, type, Balance.SPAWN_X, speedMult))
+
+        val interval = max(Balance.SPAWN_INTERVAL_MIN, Balance.SPAWN_INTERVAL_START - Balance.SPAWN_INTERVAL_STEP * (w - 1))
+        spawnTimer = interval * (0.8f + Random.nextFloat() * 0.45f)
+    }
+
+    private fun updateZombies(dt: Float) {
+        val iterator = zombies.iterator()
+        while (iterator.hasNext()) {
+            val z = iterator.next()
+            if (z.hitFlash > 0f) z.hitFlash = (z.hitFlash - dt).coerceAtLeast(0f)
+            if (z.dying) {
+                z.deathTimer += dt
+                if (z.deathTimer > DEATH_TIME) iterator.remove()
+                continue
+            }
+            if (z.stagger > 0f) z.stagger = (z.stagger - dt).coerceAtLeast(0f)
+            val speed = z.type.speed * z.speedMult * (if (z.stagger > 0f) 0.12f else 1f)
+            z.x += speed * dt
+            z.walkTimer += dt * speed * 0.11f
+        }
+        // anyone who reaches her catches her
+        val catcher = zombies.firstOrNull { it.isAlive && it.frontX >= heroX - Balance.CATCH_MARGIN }
+        if (catcher != null) caught(catcher)
+    }
+
+    private fun updateGrenades(dt: Float) {
+        val iterator = grenades.iterator()
+        val landed = mutableListOf<ThrownGrenade>()
+        while (iterator.hasNext()) {
+            val g = iterator.next()
+            g.t += dt
+            if (g.t >= g.flightTime) {
+                landed.add(g)
+                iterator.remove()
+            }
+        }
+        landed.forEach { explode(it.x1, it.y1) }
+    }
+
+    private fun updateEffects(dt: Float) {
+        if (muzzleFlashTimer > 0f) muzzleFlashTimer = (muzzleFlashTimer - dt).coerceAtLeast(0f)
+        if (throwTimer > 0f) throwTimer = (throwTimer - dt).coerceAtLeast(0f)
+
+        // dead zombies keep animating during game over
+        if (status == GameStatus.GAME_OVER) {
+            zombies.forEach { if (it.dying) it.deathTimer += dt }
+            zombies.removeAll { it.dying && it.deathTimer > DEATH_TIME }
         }
 
-        // Muzzle flash decay
-        if (muzzleFlashTimer > 0f) {
-            muzzleFlashTimer = (muzzleFlashTimer - dt).coerceAtLeast(0f)
+        val ti = tracers.iterator()
+        while (ti.hasNext()) {
+            val t = ti.next()
+            t.life -= dt
+            if (t.life <= 0f) ti.remove()
         }
 
-        // Screen shake decay
-        if (shakeIntensity > 0f) {
-            shakeIntensity = (shakeIntensity - 24f * dt).coerceAtLeast(0f)
-            shakeX = (Random.nextFloat() - 0.5f) * shakeIntensity
-            shakeY = (Random.nextFloat() - 0.5f) * shakeIntensity
+        val pi = particles.iterator()
+        while (pi.hasNext()) {
+            val p = pi.next()
+            p.life -= dt
+            if (p.isDead) {
+                pi.remove()
+                continue
+            }
+            p.vy += p.gravity * dt
+            p.x += p.vx * dt
+            p.y += p.vy * dt
+            if (p.kind == ParticleKind.BLOOD && p.y >= floorY - 1f) {
+                p.y = floorY - 1f
+                p.vx *= 0.4f
+                p.vy = 0f
+            }
+        }
+
+        if (shakeAmount > 0.05f) {
+            shakeX = (Random.nextFloat() - 0.5f) * shakeAmount
+            shakeY = (Random.nextFloat() - 0.5f) * shakeAmount
+            shakeAmount *= 0.86f
         } else {
+            shakeAmount = 0f
             shakeX = 0f
             shakeY = 0f
         }
-
-        val now = System.currentTimeMillis()
-
-        // Weapon reload progression
-        weapons.forEach { w ->
-            if (w.isReloading) {
-                val speedBonus = 1f + (defenseUpgrades.reloadSpeedLevel - 1) * 0.15f
-                val totalReloadTime = w.reloadTimeMs / 1000f / speedBonus
-                w.reloadProgress += dt / totalReloadTime
-                if (w.reloadProgress >= 1f) {
-                    w.isReloading = false
-                    w.reloadProgress = 0f
-                    w.finishReload()
-                    soundManager.playReload()
-                }
-            }
-        }
-
-        // If in WAVE_CLEARED state: advance countdown and transition to next wave automatically
-        if (status == GameStatus.WAVE_CLEARED) {
-            waveClearCountdown -= dt
-            if (waveClearCountdown <= 0f) {
-                continueToNextWave()
-            }
-        }
-
-        // Roof Sentry Turret auto-firing at nearest zombie
-        if (status == GameStatus.PLAYING && defenseUpgrades.turretLevel > 0 && zombies.isNotEmpty()) {
-            timeSinceLastTurretShot += dt
-            val interval = defenseUpgrades.turretIntervalMs / 1000f
-            if (timeSinceLastTurretShot >= interval) {
-                timeSinceLastTurretShot = 0f
-                val target = zombies.minByOrNull { it.x }
-                if (target != null && target.x < screenWidth) {
-                    val turretOrigin = roofTurretOffset
-                    val dx = target.x - turretOrigin.x
-                    val dy = target.y - turretOrigin.y
-                    val angle = atan2(dy, dx)
-                    projectiles.add(
-                        Projectile(
-                            id = nextProjectileId++,
-                            type = ProjectileType.BULLET,
-                            x = turretOrigin.x,
-                            y = turretOrigin.y,
-                            vx = cos(angle) * 1700f,
-                            vy = sin(angle) * 1700f,
-                            damage = defenseUpgrades.turretDamage,
-                            radius = 3.5f
-                        )
-                    )
-                    addMuzzleFlash(turretOrigin.x + 8f, turretOrigin.y)
-                    soundManager.playShotSound(WeaponType.PISTOL)
-                }
-            }
-        }
-
-        // Spawn Wave Zombies (only while in PLAYING mode)
-        if (status == GameStatus.PLAYING && zombiesToSpawnInWave > 0) {
-            timeSinceLastSpawn += dt
-            if (timeSinceLastSpawn >= currentSpawnInterval) {
-                timeSinceLastSpawn = 0f
-                spawnZombieForCurrentWave()
-                zombiesToSpawnInWave--
-            }
-        }
-
-        // Update Fire Zones
-        val fireIterator = fireZones.iterator()
-        while (fireIterator.hasNext()) {
-            val fire = fireIterator.next()
-            fire.remainingSeconds -= dt
-
-            if (Random.nextFloat() < 0.35f) {
-                particles.add(
-                    Particle(
-                        id = nextParticleId++,
-                        type = ParticleType.EXPLOSION_FIRE,
-                        x = fire.x + (Random.nextFloat() - 0.5f) * fire.radius,
-                        y = fire.y + (Random.nextFloat() - 0.5f) * 30f,
-                        vx = (Random.nextFloat() - 0.5f) * 20f,
-                        vy = -50f - Random.nextFloat() * 40f,
-                        alpha = 0.9f,
-                        scale = 1.2f,
-                        maxLife = 0.5f,
-                        life = 0.5f,
-                        color = Color(0xFFFF5722)
-                    )
-                )
-            }
-
-            spawnFireAmbience(fire)
-
-            zombies.forEach { z ->
-                val dist = hypot(z.x - fire.x, z.y - fire.y)
-                if (dist <= fire.radius) {
-                    z.currentHp -= 36f * dt
-                    z.slowTimer = 0.5f
-                    if (Random.nextFloat() < 0.08f) {
-                        spawnBloodParticles(z.x, z.y, Color(0xFFFF9800), count = 2)
-                    }
-                }
-            }
-
-            if (fire.remainingSeconds <= 0f) {
-                fireIterator.remove()
-            }
-        }
-
-        // Update Zombies
-        val zombieIterator = zombies.iterator()
-        while (zombieIterator.hasNext()) {
-            val z = zombieIterator.next()
-
-            if (z.hitFlashTimer > 0f) {
-                z.hitFlashTimer -= dt
-            }
-            if (z.slowTimer > 0f) {
-                z.slowTimer -= dt
-            }
-
-            if (z.isDead) {
-                onZombieKilled(z)
-                zombieIterator.remove()
-                continue
-            }
-
-            // Spitter ranged spit
-            if (z.type == ZombieType.SPITTER && z.x < screenWidth * 0.78f && z.x > barricadeX + 80f) {
-                if (now - z.lastAttackTime >= z.type.attackIntervalMs) {
-                    z.lastAttackTime = now
-                    shootAcidSpit(z)
-                }
-            }
-
-            // Movement & Barricade Collision
-            val targetBarricade = barricadeX + 12f
-            if (z.x > targetBarricade) {
-                val slowFactor = if (z.slowTimer > 0f) 0.5f else 1.0f
-                z.x -= z.type.speed * z.speedMult * slowFactor * dt
-                z.walkAnimTimer += dt * 5.2f
-
-                if (Random.nextFloat() < 0.08f) {
-                    addWaterSplash(z.x + z.type.width * 0.4f, z.y + z.type.height * 0.85f)
-                }
-            } else {
-                // At barricade! Attack house
-                z.x = targetBarricade
-                z.isAttacking = true
-
-                // Barbed wire defense damage & slow
-                if (defenseUpgrades.barbedWireLevel > 0) {
-                    z.currentHp -= defenseUpgrades.spikeDamagePerSec * dt
-                    if (Random.nextFloat() < 0.06f) {
-                        spawnBloodParticles(z.x, z.y, Color(0xFF8BC34A), count = 2)
-                    }
-                }
-
-                if (now - z.lastAttackTime >= z.type.attackIntervalMs) {
-                    z.lastAttackTime = now
-                    damageHouse(z.type.attackDamage * z.damageMult)
-                    spawnWoodSplinters(barricadeX, z.y)
-                }
-            }
-        }
-
-        // Update Projectiles
-        val projIterator = projectiles.iterator()
-        while (projIterator.hasNext()) {
-            val p = projIterator.next()
-            p.lifetime -= dt
-            if (p.lifetime <= 0f || p.hasHit) {
-                projIterator.remove()
-                continue
-            }
-
-            p.x += p.vx * dt
-            p.y += p.vy * dt
-
-            if (p.type == ProjectileType.GRENADE && Random.nextFloat() < 0.6f) {
-                spawnTrailSmoke(p.x, p.y)
-            }
-
-            if (p.x > screenWidth + 100f || p.y < 0f || p.y > screenHeight) {
-                projIterator.remove()
-                continue
-            }
-
-            if (p.isEnemy) {
-                if (p.x <= barricadeX) {
-                    p.hasHit = true
-                    damageHouse(p.damage)
-                    spawnToxicSplatter(p.x, p.y)
-                    projIterator.remove()
-                    continue
-                }
-            } else {
-                var hitZombie: Zombie? = null
-                val prevX = p.x - p.vx * dt
-                val prevY = p.y - p.vy * dt
-
-                for (z in zombies) {
-                    val isNearBarricade = z.x <= barricadeX + 48f
-                    // Generous hitboxes tailored to each zombie type with close-range assist
-                    val extraCloseMargin = if (isNearBarricade) 18f else 0f
-                    val halfW = z.type.width * 0.70f + p.radius + 12f + extraCloseMargin
-
-                    // z.y is the waterline/feet level. Top of head is at z.y - z.type.height
-                    val zTop = z.y - z.type.height - p.radius - 14f
-                    val zBottom = z.y + p.radius + 14f
-                    val zLeft = z.x - halfW - (if (isNearBarricade) 18f else 8f)
-                    val zRight = z.x + halfW
-
-                    // Continuous collision check with 5 interpolation sub-steps (prevents fast bullet tunneling!)
-                    var collides = false
-                    for (step in 0..5) {
-                        val fraction = step / 5f
-                        val testX = prevX + (p.x - prevX) * fraction
-                        val testY = prevY + (p.y - prevY) * fraction
-                        if (testX in zLeft..zRight && testY in zTop..zBottom) {
-                            collides = true
-                            break
-                        }
-                    }
-
-                    if (collides) {
-                        hitZombie = z
-                        break
-                    }
-                }
-
-                if (hitZombie != null) {
-                    if (p.isExplosive) {
-                        p.hasHit = true
-                        soundManager.playExplosion()
-                        spawnExplosion(p.x, p.y)
-                        triggerScreenShake(12f)
-
-                        zombies.forEach { z ->
-                            val dist = hypot(z.x - p.x, z.y - p.y)
-                            if (dist <= p.blastRadius) {
-                                val falloff = (1f - dist / p.blastRadius).coerceIn(0.35f, 1f)
-                                z.currentHp -= p.damage * falloff
-                                z.hitFlashTimer = 0.15f
-                                z.x += (35f * falloff)
-                            }
-                        }
-                        projIterator.remove()
-                    } else {
-                        // Normal or piercing projectile
-                        val armorFactor = when (p.type) {
-                            ProjectileType.SNIPER_BULLET -> 1f // Bypasses armor completely!
-                            ProjectileType.FLAME -> 1f         // Fire bypasses armor
-                            ProjectileType.PELLET -> 1f
-                            else -> (1f - hitZombie.type.armorDamageReduction)
-                        }
-                        val effectiveDmg = p.damage * armorFactor
-                        hitZombie.currentHp -= effectiveDmg
-                        hitZombie.hitFlashTimer = 0.12f
-                        hitZombie.x += (if (p.type == ProjectileType.SNIPER_BULLET) 25f else 12f)
-                        soundManager.playZombieHit()
-
-                        if (p.type == ProjectileType.FLAME) {
-                            hitZombie.slowTimer = 0.6f
-                        }
-
-                        val isCrit = Random.nextFloat() < 0.15f
-                        if (isCrit) {
-                            hitZombie.currentHp -= p.damage * 0.5f
-                            spawnFloatingText(hitZombie.x, hitZombie.y - 36f, "¡CRÍTICO!", Color(0xFFFF5252))
-                        }
-
-                        spawnBloodParticles(
-                            p.x,
-                            p.y,
-                            when (hitZombie.type) {
-                                ZombieType.SPITTER -> Color(0xFF64DD17)
-                                ZombieType.COLOSSUS -> Color(0xFFFF1744)
-                                else -> Color(0xFFB71C1C)
-                            }
-                        )
-                        spawnImpactSparks(
-                            p.x,
-                            p.y,
-                            count = if (hitZombie.type.armorDamageReduction > 0f) 6 else 2,
-                            color = if (hitZombie.type.armorDamageReduction > 0f) Color(0xFFFFF59D) else Color(0xFFFFCC80)
-                        )
-
-                        // Piercing deduction
-                        p.pierceCount--
-                        if (p.pierceCount <= 0) {
-                            p.hasHit = true
-                            projIterator.remove()
-                        }
-                    }
-                }
-            }
-        }
-
-        // Update Particles
-        val partIterator = particles.iterator()
-        while (partIterator.hasNext()) {
-            val part = partIterator.next()
-            part.life -= dt
-            if (part.isDead) {
-                partIterator.remove()
-                continue
-            }
-            part.vy += part.gravity * dt
-            part.scale = (part.scale + part.growth * dt).coerceAtLeast(0.05f)
-            part.x += part.vx * dt
-            part.y += part.vy * dt
-            part.alpha = (part.life / part.maxLife).coerceIn(0f, 1f)
-        }
-
-        // Keep the particle count bounded so a minigun + explosions never tank the frame rate
-        if (particles.size > MAX_PARTICLES) {
-            particles.subList(0, particles.size - MAX_PARTICLES).clear()
-        }
-
-        // Check Wave Completion
-        if (status == GameStatus.PLAYING && zombiesToSpawnInWave == 0 && zombies.isEmpty() && houseHp > 0f) {
-            status = GameStatus.WAVE_CLEARED
-            waveClearCountdown = waveClearDuration
-            val waveBonus = Balance.WAVE_BONUS_BASE + wave * Balance.WAVE_BONUS_PER_WAVE
-            coins += waveBonus
-            score += waveBonus * 15
-            soundManager.playWaveCompleted()
-            spawnFloatingText(screenWidth * 0.5f, screenHeight * 0.45f, "+$$waveBonus BONUS", Color(0xFFFFD700))
-        }
     }
 
-    private fun spawnZombieForCurrentWave() {
-        val minSpawnY = waterTop + 15f
-        val maxSpawnY = screenHeight * 0.94f
-        val spawnY = minSpawnY + Random.nextFloat() * (maxSpawnY - minSpawnY)
-
-        // The mix of enemies is picked as if the game were a little further along
-        val tier = wave + Balance.TIER_OFFSET
-
-        val type = when {
-            tier == 1 -> if (Random.nextFloat() < 0.25f) ZombieType.RUNNER else ZombieType.WALKER
-            tier == 2 -> {
-                val r = Random.nextFloat()
-                when {
-                    r < 0.20f -> ZombieType.ZOMBIE_DOG
-                    r < 0.50f -> ZombieType.RUNNER
-                    else -> ZombieType.WALKER
-                }
-            }
-            tier == 3 -> {
-                val r = Random.nextFloat()
-                when {
-                    r < 0.15f -> ZombieType.SPITTER
-                    r < 0.40f -> ZombieType.ZOMBIE_DOG
-                    r < 0.65f -> ZombieType.RUNNER
-                    else -> ZombieType.WALKER
-                }
-            }
-            tier == 4 -> {
-                val r = Random.nextFloat()
-                when {
-                    r < 0.15f -> ZombieType.ARMORED
-                    r < 0.35f -> ZombieType.SPITTER
-                    r < 0.55f -> ZombieType.ZOMBIE_DOG
-                    r < 0.75f -> ZombieType.RUNNER
-                    else -> ZombieType.WALKER
-                }
-            }
-            wave % 5 == 0 && zombiesToSpawnInWave == 1 -> {
-                ZombieType.COLOSSUS
-            }
-            tier in 5..8 -> {
-                val r = Random.nextFloat()
-                when {
-                    r < 0.15f -> ZombieType.ARMORED
-                    r < 0.30f -> ZombieType.GATOR
-                    r < 0.45f -> ZombieType.SPITTER
-                    r < 0.65f -> ZombieType.ZOMBIE_DOG
-                    r < 0.82f -> ZombieType.RUNNER
-                    else -> ZombieType.WALKER
-                }
-            }
-            else -> {
-                val r = Random.nextFloat()
-                when {
-                    r < 0.12f -> ZombieType.TANK
-                    r < 0.25f -> ZombieType.ARMORED
-                    r < 0.38f -> ZombieType.GATOR
-                    r < 0.52f -> ZombieType.SPITTER
-                    r < 0.68f -> ZombieType.ZOMBIE_DOG
-                    r < 0.84f -> ZombieType.RUNNER
-                    else -> ZombieType.WALKER
-                }
-            }
-        }
-
-        val hpMultiplier = 1f + (wave - 1) * Balance.HP_GROWTH_PER_WAVE
-        val speedMult = (1f + (wave - 1) * Balance.SPEED_GROWTH_PER_WAVE).coerceAtMost(Balance.SPEED_MULT_CAP)
-        val damageMult = 1f + (wave - 1) * Balance.DAMAGE_GROWTH_PER_WAVE
-        val scaledHp = type.maxHp * hpMultiplier
-
-        zombies.add(
-            Zombie(
-                id = nextZombieId++,
-                type = type,
-                x = screenWidth + Random.nextFloat() * 70f + 30f,
-                y = spawnY,
-                currentHp = scaledHp,
-                maxHp = scaledHp,
-                walkAnimTimer = Random.nextFloat() * 6.28f,
-                speedMult = speedMult,
-                damageMult = damageMult
-            )
-        )
+    // ---------------------------------------------------------------- little effect helpers
+    private fun addShake(amount: Float) {
+        shakeAmount = max(shakeAmount, amount)
     }
 
-    private fun onZombieKilled(z: Zombie) {
-        zombiesKilled++
-        val reward = z.type.coinReward
-        coins += reward
-        score += reward * 15
-
-        soundManager.playZombieDeath()
-        soundManager.playCoinPickup()
-
-        spawnGoreBurst(
-            z.x,
-            z.y,
-            when (z.type) {
-                ZombieType.SPITTER -> Color(0xFF64DD17)
-                ZombieType.COLOSSUS -> Color(0xFFFF1744)
-                else -> Color(0xFFC2185B)
-            }
-        )
-        spawnBloodPool(
-            z.x,
-            z.y,
-            z.type.width * 0.45f,
-            when (z.type) {
-                ZombieType.SPITTER -> Color(0xFF33691E)
-                ZombieType.COLOSSUS -> Color(0xFF8E0E1A)
-                else -> Color(0xFF5A0A12)
-            }
-        )
-        spawnFloatingText(z.x, z.y - 30f, "+$$reward", Color(0xFFFFD700))
+    private fun warn(text: String) {
+        if (clock - lastWarningAt < 0.9f) return
+        lastWarningAt = clock
+        spawnText(heroX - 30f, floorY - 130f, text, Color(0xFFFF5252), 0.8f)
     }
 
-    private fun damageHouse(damage: Float) {
-        houseHp = (houseHp - damage).coerceAtLeast(0f)
-        houseDamageFlash = 0.35f
-        soundManager.playHouseDamage()
-        triggerScreenShake(8f)
-
-        if (houseHp <= 0f) {
-            status = GameStatus.GAME_OVER
-            soundManager.playGameOver()
-            onGameOver(survivedSeconds.toInt(), wave, zombiesKilled, coins)
-        }
+    fun spawnText(x: Float, y: Float, text: String, color: Color, life: Float = 1f) {
+        particles.add(Particle(ParticleKind.TEXT, x, y, 0f, -22f, life, color, size = 9f, text = text))
     }
 
-    private fun shootAcidSpit(spitter: Zombie) {
-        val speed = 370f
-        val targetX = barricadeX
-        val targetY = spitter.y
-        val angle = atan2(targetY - spitter.y, targetX - spitter.x)
-
-        projectiles.add(
-            Projectile(
-                id = nextProjectileId++,
-                type = ProjectileType.ACID_SPIT,
-                x = spitter.x - 20f,
-                y = spitter.y - 20f,
-                vx = cos(angle) * speed,
-                vy = sin(angle) * speed,
-                damage = spitter.type.attackDamage * spitter.damageMult,
-                radius = 6f,
-                isEnemy = true
-            )
-        )
-    }
-
-    private fun triggerScreenShake(intensity: Float) {
-        shakeIntensity = max(shakeIntensity, intensity)
-    }
-
-    private fun addMuzzleFlash(x: Float, y: Float) {
-        particles.add(
-            Particle(
-                id = nextParticleId++,
-                type = ParticleType.MUZZLE_FLASH,
-                x = x + 2f,
-                y = y,
-                vx = 0f,
-                vy = 0f,
-                alpha = 1f,
-                scale = 1.4f,
-                maxLife = 0.08f,
-                life = 0.08f,
-                color = Color(0xFFFFEB3B),
-                radius = 12f
-            )
-        )
-    }
-
-    private fun addWaterSplash(x: Float, y: Float) {
-        for (i in 0..2) {
+    private fun blood(x: Float, y: Float, count: Int) {
+        repeat(count) {
+            val sp = 30f + Random.nextFloat() * 120f
+            val a = (Random.nextFloat() - 0.5f) * 2.4f
             particles.add(
                 Particle(
-                    id = nextParticleId++,
-                    type = ParticleType.WATER_SPLASH,
-                    x = x + (Random.nextFloat() - 0.5f) * 16f,
-                    y = y,
-                    vx = (Random.nextFloat() - 0.5f) * 35f,
-                    vy = -20f - Random.nextFloat() * 25f,
-                    alpha = 0.7f,
-                    maxLife = 0.35f,
-                    life = 0.35f,
-                    color = Color(0xFF80CBC4),
-                    radius = 3.5f
+                    ParticleKind.BLOOD, x, y, -cos(a) * sp, -abs(sin(a)) * sp - 20f, 0.5f + Random.nextFloat() * 0.5f,
+                    if (Random.nextInt(3) == 0) Color(0xFF8E0E0E) else Color(0xFFC21818),
+                    size = 2f + Random.nextInt(2) * 2f, gravity = 380f
                 )
             )
         }
     }
 
-    private fun spawnBloodParticles(x: Float, y: Float, color: Color, count: Int = 4) {
-        for (i in 0 until count) {
+    private fun sparks(x: Float, y: Float, count: Int) {
+        repeat(count) {
+            val a = (Random.nextFloat() - 0.5f) * 1.6f
+            val sp = 40f + Random.nextFloat() * 120f
+            particles.add(
+                Particle(ParticleKind.SPARK, x, y, -cos(a) * sp, sin(a) * sp, 0.12f + Random.nextFloat() * 0.12f,
+                    Color(0xFFFFE082), size = 2f)
+            )
+        }
+    }
+
+    private fun smoke(x: Float, y: Float, count: Int) {
+        repeat(count) {
             particles.add(
                 Particle(
-                    id = nextParticleId++,
-                    type = ParticleType.BLOOD,
-                    x = x,
-                    y = y,
-                    vx = (Random.nextFloat() - 0.5f) * 110f,
-                    vy = (Random.nextFloat() - 0.5f) * 90f,
-                    alpha = 0.85f,
-                    maxLife = 0.35f,
-                    life = 0.35f,
-                    color = color,
-                    radius = 3f + Random.nextFloat() * 3f
+                    ParticleKind.SMOKE, x + (Random.nextFloat() - 0.5f) * 12f, y + (Random.nextFloat() - 0.5f) * 8f,
+                    -10f - Random.nextFloat() * 25f, -12f - Random.nextFloat() * 14f, 0.6f + Random.nextFloat() * 0.5f,
+                    Color(0xFFB0B0B0), size = 5f + Random.nextFloat() * 4f
                 )
             )
         }
     }
 
-    private fun spawnGoreBurst(x: Float, y: Float, color: Color) {
-        for (i in 0..8) {
-            particles.add(
-                Particle(
-                    id = nextParticleId++,
-                    type = ParticleType.BLOOD,
-                    x = x,
-                    y = y,
-                    vx = (Random.nextFloat() - 0.5f) * 180f,
-                    vy = -60f - Random.nextFloat() * 100f,
-                    alpha = 0.9f,
-                    maxLife = 0.55f,
-                    life = 0.55f,
-                    color = color,
-                    radius = 4f + Random.nextFloat() * 4f
-                )
-            )
-        }
-    }
-
-    private fun spawnExplosion(x: Float, y: Float, isMolotov: Boolean = false) {
-        spawnExplosionSmoke(x, y, isMolotov)
-        for (i in 0..12) {
-            val angle = Random.nextFloat() * (2 * PI.toFloat())
-            val spd = 50f + Random.nextFloat() * 150f
-            particles.add(
-                Particle(
-                    id = nextParticleId++,
-                    type = ParticleType.EXPLOSION_FIRE,
-                    x = x,
-                    y = y,
-                    vx = cos(angle) * spd,
-                    vy = sin(angle) * spd,
-                    alpha = 1f,
-                    scale = 1.5f,
-                    maxLife = 0.45f,
-                    life = 0.45f,
-                    color = if (isMolotov) Color(0xFFFF5722) else Color(0xFFFF9800),
-                    radius = 8f + Random.nextFloat() * 10f
-                )
-            )
-        }
-    }
-
-    private fun spawnWoodSplinters(x: Float, y: Float) {
-        for (i in 0..4) {
-            particles.add(
-                Particle(
-                    id = nextParticleId++,
-                    type = ParticleType.SMOKE,
-                    x = x,
-                    y = y,
-                    vx = -20f - Random.nextFloat() * 60f,
-                    vy = (Random.nextFloat() - 0.5f) * 80f,
-                    alpha = 0.8f,
-                    maxLife = 0.4f,
-                    life = 0.4f,
-                    color = Color(0xFF8D6E63),
-                    radius = 4f
-                )
-            )
-        }
-    }
-
-    private fun spawnToxicSplatter(x: Float, y: Float) {
-        for (i in 0..5) {
-            particles.add(
-                Particle(
-                    id = nextParticleId++,
-                    type = ParticleType.TOXIC_SLIME,
-                    x = x,
-                    y = y,
-                    vx = (Random.nextFloat() - 0.5f) * 70f,
-                    vy = (Random.nextFloat() - 0.5f) * 70f,
-                    alpha = 0.85f,
-                    maxLife = 0.4f,
-                    life = 0.4f,
-                    color = Color(0xFF76FF03),
-                    radius = 5f
-                )
-            )
-        }
-    }
-
-    private fun spawnFloatingText(
-        x: Float,
-        y: Float,
-        text: String,
-        color: Color,
-        life: Float = 0.85f,
-        rise: Float = -45f
-    ) {
-        particles.add(
-            Particle(
-                id = nextParticleId++,
-                type = ParticleType.FLOATING_TEXT,
-                x = x,
-                y = y,
-                vx = 0f,
-                vy = rise,
-                alpha = 1f,
-                maxLife = life,
-                life = life,
-                color = color,
-                text = text
-            )
-        )
-    }
-
-    private fun spawnShellCasing(x: Float, y: Float) {
-        particles.add(
-            Particle(
-                id = nextParticleId++,
-                type = ParticleType.SHELL_CASING,
-                x = x,
-                y = y,
-                vx = -40f - Random.nextFloat() * 50f,
-                vy = -110f - Random.nextFloat() * 60f,
-                alpha = 1f,
-                maxLife = 0.75f,
-                life = 0.75f,
-                color = Color(0xFFE0B040),
-                radius = 3f,
-                gravity = 520f,
-                rotation = Random.nextFloat() * 6.28f
-            )
-        )
-    }
-
-    private fun spawnImpactSparks(x: Float, y: Float, count: Int, color: Color) {
-        for (i in 0 until count) {
-            particles.add(
-                Particle(
-                    id = nextParticleId++,
-                    type = ParticleType.SPARK,
-                    x = x,
-                    y = y,
-                    vx = (Random.nextFloat() - 0.3f) * 320f,
-                    vy = (Random.nextFloat() - 0.7f) * 260f,
-                    alpha = 1f,
-                    maxLife = 0.22f,
-                    life = 0.22f,
-                    color = color,
-                    radius = 3f,
-                    gravity = 380f
-                )
-            )
-        }
-    }
-
-    private fun spawnTrailSmoke(x: Float, y: Float) {
-        particles.add(
-            Particle(
-                id = nextParticleId++,
-                type = ParticleType.SMOKE,
-                x = x,
-                y = y,
-                vx = (Random.nextFloat() - 0.5f) * 14f,
-                vy = -8f - Random.nextFloat() * 14f,
-                alpha = 0.6f,
-                maxLife = 0.55f,
-                life = 0.55f,
-                color = Color(0xFF90A4AE),
-                radius = 6f,
-                growth = 1.4f
-            )
-        )
-    }
-
-    private fun spawnExplosionSmoke(x: Float, y: Float, isMolotov: Boolean) {
-        val puffs = if (isMolotov) 4 else 7
-        for (i in 0 until puffs) {
-            particles.add(
-                Particle(
-                    id = nextParticleId++,
-                    type = ParticleType.SMOKE,
-                    x = x + (Random.nextFloat() - 0.5f) * 40f,
-                    y = y + (Random.nextFloat() - 0.5f) * 24f,
-                    vx = (Random.nextFloat() - 0.5f) * 50f,
-                    vy = -25f - Random.nextFloat() * 40f,
-                    alpha = 0.7f,
-                    maxLife = 0.9f + Random.nextFloat() * 0.4f,
-                    life = 1.0f,
-                    color = Color(0xFF37474F),
-                    radius = 16f,
-                    growth = 1.8f
-                )
-            )
-        }
-        if (!isMolotov) {
-            spawnImpactSparks(x, y, count = 10, color = Color(0xFFFFE082))
-        }
-    }
-
-    private fun spawnFireAmbience(fire: ActiveFireZone) {
-        if (Random.nextFloat() < 0.3f) {
-            particles.add(
-                Particle(
-                    id = nextParticleId++,
-                    type = ParticleType.EMBER,
-                    x = fire.x + (Random.nextFloat() - 0.5f) * fire.radius * 1.4f,
-                    y = fire.y - 4f,
-                    vx = (Random.nextFloat() - 0.5f) * 30f,
-                    vy = -55f - Random.nextFloat() * 60f,
-                    alpha = 1f,
-                    maxLife = 0.9f + Random.nextFloat() * 0.8f,
-                    life = 1.2f,
-                    color = Color(0xFFFF9100),
-                    radius = 2.5f + Random.nextFloat() * 1.5f
-                )
-            )
-        }
-        if (Random.nextFloat() < 0.07f) {
-            particles.add(
-                Particle(
-                    id = nextParticleId++,
-                    type = ParticleType.SMOKE,
-                    x = fire.x + (Random.nextFloat() - 0.5f) * fire.radius,
-                    y = fire.y - 24f,
-                    vx = (Random.nextFloat() - 0.5f) * 12f,
-                    vy = -30f - Random.nextFloat() * 20f,
-                    alpha = 0.5f,
-                    maxLife = 1.1f,
-                    life = 1.1f,
-                    color = Color(0xFF263238),
-                    radius = 14f,
-                    growth = 1.2f
-                )
-            )
-        }
-    }
-
-    private fun spawnBloodPool(x: Float, y: Float, radius: Float, color: Color) {
-        particles.add(
-            Particle(
-                id = nextParticleId++,
-                type = ParticleType.BLOOD_POOL,
-                x = x,
-                y = y + 3f,
-                vx = 0f,
-                vy = 0f,
-                alpha = 1f,
-                maxLife = 4f,
-                life = 4f,
-                color = color,
-                radius = radius
-            )
-        )
+    companion object {
+        const val MAX_AIM = 0.55f
+        const val MUZZLE_FLASH_TIME = 0.07f
+        const val DEATH_TIME = 0.9f
     }
 }

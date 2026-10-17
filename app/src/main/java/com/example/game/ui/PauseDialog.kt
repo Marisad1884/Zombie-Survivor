@@ -19,7 +19,6 @@ import androidx.compose.ui.window.Dialog
 @Composable
 fun PauseDialog(
     onResume: () -> Unit,
-    onOpenShop: () -> Unit,
     onQuickRestart: () -> Unit,
     onOpenLeaderboard: () -> Unit,
     modifier: Modifier = Modifier
@@ -69,22 +68,6 @@ fun PauseDialog(
                     Icon(imageVector = Icons.Default.PlayArrow, contentDescription = "Reanudar")
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("REANUDAR PARTIDA", fontWeight = FontWeight.Bold)
-                }
-
-                // Armory
-                OutlinedButton(
-                    onClick = onOpenShop,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(46.dp)
-                        .testTag("pause_shop_button"),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFFD54F)),
-                    border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFFFB300))
-                ) {
-                    Icon(imageVector = Icons.Default.ShoppingCart, contentDescription = "Tienda")
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("ARMERÍA Y MEJORAS", fontWeight = FontWeight.Bold)
                 }
 
                 // Leaderboard
