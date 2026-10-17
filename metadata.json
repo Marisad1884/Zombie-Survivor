@@ -1,6 +1,6 @@
 {
   "name": "Swamp Zombie",
-  "description": "Videojuego de defensa 2D estilo Swamp Attack donde defiendes tu cabaña contra hordas de zombis con mejoras de armas y marcadores de supervivencia.",
+  "description": "Videojuego de supervivencia 2D en un pasillo: dispara a zombis en fila con revólver, escopeta y granada mientras tu compañera te trae la munición.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
