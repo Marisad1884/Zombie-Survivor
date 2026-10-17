@@ -54,8 +54,8 @@ object Balance {
     /** Shotgun reaches only this fraction of the map width, counted from the heroine. */
     const val SHOTGUN_RANGE_FRACTION = 0.5f
 
-    const val GRENADE_DAMAGE = 150f
-    const val GRENADE_RADIUS = 115f
+    /** Enough to kill anything: the grenade clears the whole screen. */
+    const val GRENADE_DAMAGE = 100000f
     const val GRENADE_MAX_DISTANCE_FROM_HERO = 90f
 
     // ---------------------------------------------------------------- ammo girl

@@ -50,7 +50,7 @@ class ExampleUnitTest {
 
   @Test
   fun reserveIsCapped() {
-    val w = Weapon(WeaponType.GRENADE)
+    val w = Weapon(WeaponType.REVOLVER)
     val added = w.addReserve(1000)
     assertEquals(w.type.maxReserve, w.reserveAmmo)
     assertTrue(added > 0)
@@ -64,5 +64,18 @@ class ExampleUnitTest {
     val z = Zombie(1, ZombieType.NORMAL, 10f, 1f)
     assertTrue(z.isAlive)
     assertTrue(z.frontX > z.x)
+  }
+
+  @Test
+  fun grenadeIsASingleGrenadeInHand() {
+    val g = Weapon(WeaponType.GRENADE)
+    assertEquals(1, g.currentAmmo)
+    assertEquals(0, g.reserveAmmo)
+    assertEquals(0, g.refillSpace)
+    g.currentAmmo = 0
+    assertEquals(1, g.refillSpace)
+    assertEquals(1, g.addDelivered(5))
+    assertEquals(1, g.currentAmmo)
+    assertEquals(0, g.addDelivered(1))
   }
 }

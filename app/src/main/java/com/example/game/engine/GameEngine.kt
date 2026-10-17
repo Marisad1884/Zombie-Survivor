@@ -105,6 +105,9 @@ class GameEngine(
         private set
     var throwTimer: Float = 0f
         private set
+    /** 1 right after a grenade goes off, fades out: the white flash over the whole screen. */
+    var blastFlash: Float = 0f
+        private set
     var shakeAmount: Float = 0f
         private set
     var shakeX: Float = 0f
@@ -152,6 +155,7 @@ class GameEngine(
         aimAngle = 0f
         muzzleFlashTimer = 0f
         throwTimer = 0f
+        blastFlash = 0f
         shakeAmount = 0f
         shakeX = 0f
         shakeY = 0f
@@ -179,22 +183,21 @@ class GameEngine(
     // ---------------------------------------------------------------- weapons
     fun selectWeapon(index: Int) {
         if (status != GameStatus.PLAYING || index !in weapons.indices || index == selectedWeaponIndex) return
-        currentWeapon.cancelReload()
         selectedWeaponIndex = index
         soundManager.playReload()
     }
 
-    /** One press loads ONE round. Filling the gun takes several presses. Returns true if a reload began. */
+    /** One press loads ONE round, right away (no loading bar). Filling the gun takes several presses. */
     fun reloadOne(): Boolean {
         if (status != GameStatus.PLAYING) return false
         val w = currentWeapon
-        if (w.isReloading || w.currentAmmo >= w.magazine) return false
+        if (w.currentAmmo >= w.magazine) return false
         if (w.reserveAmmo <= 0) {
-            warn("¡SIN BALAS!")
+            warn(if (w.type == WeaponType.GRENADE) "¡SIN GRANADA!" else "¡SIN BALAS!")
             return false
         }
-        w.isReloading = true
-        w.reloadProgress = 0f
+        if (!w.loadOne()) return false
+        soundManager.playReload()
         return true
     }
 
@@ -231,11 +234,14 @@ class GameEngine(
 
         val w = currentWeapon
         if (w.cooldownLeft > 0f) return
-        if (w.isReloading) {
-            if (w.currentAmmo > 0) w.cancelReload() else return
-        }
         if (w.currentAmmo <= 0) {
-            warn(if (w.reserveAmmo > 0) "¡RECARGA!" else "¡SIN BALAS!")
+            warn(
+                when {
+                    w.reserveAmmo > 0 -> "¡RECARGA!"
+                    w.type == WeaponType.GRENADE -> "¡SIN GRANADA!"
+                    else -> "¡SIN BALAS!"
+                }
+            )
             w.cooldownLeft = 0.25f
             return
         }
@@ -340,14 +346,14 @@ class GameEngine(
         soundManager.playShotSound(w.type)
     }
 
+    /** The grenade wipes out every zombie that is on screen, wherever it lands. */
     private fun explode(x: Float, y: Float) {
         soundManager.playExplosion()
-        addShake(9f)
+        addShake(12f)
+        blastFlash = 1f
         for (z in zombies.toList()) {
-            if (!z.isAlive) continue
-            if (abs(z.x + 4f * z.type.scale - x) <= Balance.GRENADE_RADIUS + 8f * z.type.scale) {
-                damage(z, Balance.GRENADE_DAMAGE, false, z.x, floorY - z.height * 0.5f)
-            }
+            if (!z.isAlive || z.x < ON_SCREEN_MIN_X) continue
+            damage(z, Balance.GRENADE_DAMAGE, false, z.x, floorY - z.height * 0.5f)
         }
         repeat(34) {
             val a = Random.nextFloat() * (2f * PI.toFloat())
@@ -417,8 +423,8 @@ class GameEngine(
         if (status != GameStatus.PLAYING) return false
         if (runnerState != RunnerState.IDLE || runnerCooldown > 0f) return false
         val w = currentWeapon
-        if (w.reserveSpace <= 0) {
-            spawnText(doorCx, floorY - 112f, "Reserva llena", Color(0xFF9CCC65), 1.0f)
+        if (w.refillSpace <= 0) {
+            spawnText(doorCx, floorY - 112f, if (w.type == WeaponType.GRENADE) "Ya tienes granada" else "Reserva llena", Color(0xFF9CCC65), 1.0f)
             return false
         }
         runnerTargetType = w.type
@@ -497,7 +503,7 @@ class GameEngine(
         runnerDelivered = true
         runnerCooldown = Balance.RUNNER_COOLDOWN_SECONDS
         val w = weapons.first { it.type == runnerTargetType }
-        val added = w.addReserve(w.type.delivery)
+        val added = w.addDelivered(w.type.delivery)
         soundManager.playReload()
         spawnText(
             runnerDeliverX, floorY - 112f,
@@ -520,16 +526,8 @@ class GameEngine(
         survivedSeconds += dt
         clock += dt
 
-        // weapons: cooldowns and the one-round-at-a-time reload
         for (w in weapons) {
             if (w.cooldownLeft > 0f) w.cooldownLeft = (w.cooldownLeft - dt).coerceAtLeast(0f)
-            if (w.isReloading) {
-                w.reloadProgress += dt / w.type.reloadSeconds
-                if (w.reloadProgress >= 1f) {
-                    w.cancelReload()
-                    if (w.loadOne()) soundManager.playReload()
-                }
-            }
         }
 
         updateRunner(dt)
@@ -598,6 +596,7 @@ class GameEngine(
     private fun updateEffects(dt: Float) {
         if (muzzleFlashTimer > 0f) muzzleFlashTimer = (muzzleFlashTimer - dt).coerceAtLeast(0f)
         if (throwTimer > 0f) throwTimer = (throwTimer - dt).coerceAtLeast(0f)
+        if (blastFlash > 0f) blastFlash = (blastFlash - dt * 2.2f).coerceAtLeast(0f)
 
         // dead zombies keep animating during game over
         if (status == GameStatus.GAME_OVER) {
@@ -697,5 +696,7 @@ class GameEngine(
         const val MAX_AIM = 0.55f
         const val MUZZLE_FLASH_TIME = 0.07f
         const val DEATH_TIME = 0.9f
+        /** Zombies further left than this are still in the dark outside the screen. */
+        const val ON_SCREEN_MIN_X = -18f
     }
 }

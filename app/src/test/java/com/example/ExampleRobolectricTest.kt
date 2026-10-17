@@ -6,7 +6,6 @@ import com.example.game.data.LeaderboardRepository
 import com.example.game.engine.GameEngine
 import com.example.game.engine.GameStatus
 import com.example.game.engine.RunnerState
-import com.example.game.model.Balance
 import com.example.game.model.WeaponType
 import com.example.game.model.Zombie
 import com.example.game.model.ZombieType
@@ -78,19 +77,17 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `reload puts in one round per press`() {
+  fun `reload is instant and puts in one round per press`() {
     val engine = newEngine()
     val w = engine.currentWeapon
     w.currentAmmo = 0
     val reserve = w.reserveAmmo
 
     assertTrue(engine.reloadOne())
-    repeat(40) { engine.update(0.05f) }
-    assertEquals(1, w.currentAmmo)
+    assertEquals(1, w.currentAmmo) // no waiting, no loading bar
     assertEquals(reserve - 1, w.reserveAmmo)
 
     assertTrue(engine.reloadOne())
-    repeat(40) { engine.update(0.05f) }
     assertEquals(2, w.currentAmmo)
   }
 
@@ -102,7 +99,6 @@ class ExampleRobolectricTest {
     engine.onTouchShoot(200f, engine.floorY - 50f)
     repeat(40) { engine.update(0.05f) }
     assertEquals(0, w.currentAmmo)
-    assertFalse(w.isReloading)
   }
 
   @Test
@@ -136,16 +132,39 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `grenade hurts every zombie in a wide area`() {
+  fun `grenade clears every zombie on screen and you only hold one`() {
     val engine = newEngine()
     engine.selectWeapon(2)
-    // they keep walking (about 30 units) while the grenade is in the air, so aim a little ahead of them
-    val a = engine.addZombie(200f)
-    val b = engine.addZombie(200f + Balance.GRENADE_RADIUS * 0.5f)
-    val c = engine.addZombie(200f - Balance.GRENADE_RADIUS * 0.5f)
+    assertEquals(WeaponType.GRENADE, engine.currentWeapon.type)
+    assertEquals(1, engine.currentWeapon.currentAmmo)
+    assertEquals(0, engine.currentWeapon.reserveAmmo)
+
+    val zs = listOf(40f, 150f, 260f, 330f).map { engine.addZombie(it) }
     engine.onTouchShoot(230f, engine.floorY - 20f)
+    assertEquals(0, engine.currentWeapon.currentAmmo)
     repeat(40) { engine.update(0.05f) }
-    assertTrue(a.dying && b.dying && c.dying)
+    assertTrue("every zombie on screen dies", zs.all { it.dying })
+
+    // no second grenade and nothing to reload with
+    assertFalse(engine.reloadOne())
+    engine.update(1f)
+    engine.onTouchShoot(230f, engine.floorY - 20f)
+    assertTrue(engine.grenades.isEmpty())
+  }
+
+  @Test
+  fun `ammo girl brings the next grenade`() {
+    val engine = newEngine()
+    engine.selectWeapon(2)
+    engine.onTouchShoot(230f, engine.floorY - 20f)
+    repeat(30) { engine.update(0.05f) }
+    assertEquals(0, engine.currentWeapon.currentAmmo)
+
+    assertTrue(engine.callAmmoRunner())
+    var guard = 0
+    while (engine.runnerState != RunnerState.IDLE && guard++ < 1000) engine.update(0.05f)
+    assertEquals(1, engine.currentWeapon.currentAmmo)
+    assertFalse("only one at a time", engine.callAmmoRunner())
   }
 
   @Test

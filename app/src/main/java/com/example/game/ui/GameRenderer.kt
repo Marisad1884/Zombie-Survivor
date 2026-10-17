@@ -54,6 +54,11 @@ object GameRenderer {
 
             drawHallwayShade(w)
 
+            // white flash when a grenade goes off
+            if (engine.blastFlash > 0f) {
+                drawRect(Color.White.copy(alpha = 0.85f * engine.blastFlash), size = Size(w, Balance.WORLD_H))
+            }
+
             if (aimTarget != null && engine.status == GameStatus.PLAYING) drawCrosshair(aimTarget)
             if (engine.status == GameStatus.GAME_OVER) drawCaughtOverlay(engine, w, t)
         }
@@ -203,8 +208,8 @@ object GameRenderer {
             val pulse = 0.5f + 0.5f * sin(sceneTime() * 12f)
             drawRect(
                 Color(0xFFFF5252).copy(alpha = 0.18f + 0.12f * pulse),
-                Offset(g.x1 - Balance.GRENADE_RADIUS, engine.floorY - 1f),
-                Size(Balance.GRENADE_RADIUS * 2f, 5f)
+                Offset(0f, engine.floorY - 1f),
+                Size(engine.worldWidth, 5f)
             )
             drawRect(Color(0x44000000), Offset(g.x - 6f, engine.floorY - 1f), Size(12f, 3f))
             drawPixelSprite(Sprites.ICON_GRENADE, Sprites.BASE_PALETTE, g.x - 7f, g.y - 8f, 1f)
