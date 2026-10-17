@@ -3,6 +3,13 @@ package com.example
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.example.game.data.LeaderboardRepository
+import com.example.game.engine.GameEngine
+import com.example.game.engine.GameStatus
+import com.example.game.engine.RunnerState
+import com.example.game.model.Balance
+import com.example.game.model.WeaponType
+import com.example.game.model.Zombie
+import com.example.game.model.ZombieType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -45,138 +52,119 @@ class ExampleRobolectricTest {
     assertEquals("TestHunter", topScores.first().playerName)
   }
 
-  @Test
-  fun `test game engine lower cabin porch and steep downward shooting`() {
+  private fun newEngine(): GameEngine {
     val context = ApplicationProvider.getApplicationContext<Context>()
-    val soundManager = com.example.game.audio.SoundManager(context)
-    val engine = com.example.game.engine.GameEngine(soundManager) { _, _, _, _ -> }
-    engine.screenWidth = 1200f
-    engine.screenHeight = 700f
-
-    // Verify porch is positioned lower down on screen (64% of screen height)
-    assertEquals(700f * 0.64f, engine.porchY, 0.1f)
-
-    // Verify touch shoot allows shooting downward under the house
-    val muzzle = engine.playerMuzzleOffset
-    // Touch below the house into the water
-    engine.onTouchShoot(muzzle.x + 20f, engine.screenHeight * 0.90f)
-
-    // A projectile should have been created firing downwards
-    assertTrue(engine.projectiles.isNotEmpty())
-    val proj = engine.projectiles.first()
-    assertTrue("Bullet should have positive downward vy", proj.vy > 0)
-  }
-
-  @Test
-  fun `test throw molotov at threat creates fire zone`() {
-    val context = ApplicationProvider.getApplicationContext<Context>()
-    val soundManager = com.example.game.audio.SoundManager(context)
-    val engine = com.example.game.engine.GameEngine(soundManager) { _, _, _, _ -> }
-    engine.defenseUpgrades.molotovCount = 3
-    engine.molotovCooldownRemaining = 0f
-
-    engine.throwMolotovAtThreat()
-    assertEquals(2, engine.defenseUpgrades.molotovCount)
-    assertTrue("A fire zone should be created", engine.fireZones.isNotEmpty())
-  }
-
-  private fun newEngine(): com.example.game.engine.GameEngine {
-    val context = ApplicationProvider.getApplicationContext<Context>()
-    val soundManager = com.example.game.audio.SoundManager(context)
-    val engine = com.example.game.engine.GameEngine(soundManager) { _, _, _, _ -> }
-    engine.screenWidth = 1200f
-    engine.screenHeight = 700f
+    val engine = GameEngine(com.example.game.audio.SoundManager(context)) { _, _, _, _ -> }
+    engine.setWorldSize(1360f, 680f) // 2:1 screen -> 680 x 340 world units
     return engine
   }
 
+  /** Puts a still zombie on the floor and returns it. */
+  private fun GameEngine.addZombie(x: Float, type: ZombieType = ZombieType.NORMAL): Zombie {
+    val z = Zombie(1000L + zombies.size, type, x, 1f)
+    zombies.add(z)
+    return z
+  }
+
+  private fun GameEngine.headY(z: Zombie) = floorY - z.height * 0.9f
+  private fun GameEngine.bodyY(z: Zombie) = floorY - z.height * 0.5f
+
   @Test
-  fun `empty magazine does not reload by itself`() {
+  fun `a zombie that reaches her catches her instantly`() {
     val engine = newEngine()
-    val weapon = engine.currentWeapon
-    weapon.currentAmmo = 0
-    val reserveBefore = weapon.reserveAmmo
-
-    engine.onTouchShoot(900f, 400f)
-    engine.update(0.5f)
-
-    assertFalse("Reload must be manual now", weapon.isReloading)
-    assertEquals(0, weapon.currentAmmo)
-    assertEquals(reserveBefore, weapon.reserveAmmo)
-    assertTrue(engine.projectiles.isEmpty())
+    engine.addZombie(engine.heroX - 4f)
+    engine.update(0.05f)
+    assertEquals(GameStatus.GAME_OVER, engine.status)
   }
 
   @Test
-  fun `manual reload moves rounds from reserve to magazine`() {
+  fun `reload puts in one round per press`() {
     val engine = newEngine()
-    val weapon = engine.currentWeapon
-    weapon.currentAmmo = 0
-    val reserveBefore = weapon.reserveAmmo
-    assertTrue(reserveBefore > 0)
+    val w = engine.currentWeapon
+    w.currentAmmo = 0
+    val reserve = w.reserveAmmo
 
-    assertTrue(engine.manualReload())
-    assertTrue(weapon.isReloading)
-    repeat(100) { engine.update(0.05f) }
+    assertTrue(engine.reloadOne())
+    repeat(40) { engine.update(0.05f) }
+    assertEquals(1, w.currentAmmo)
+    assertEquals(reserve - 1, w.reserveAmmo)
 
-    assertFalse(weapon.isReloading)
-    val moved = minOf(weapon.maxAmmo, reserveBefore)
-    assertEquals(moved, weapon.currentAmmo)
-    assertEquals(reserveBefore - moved, weapon.reserveAmmo)
+    assertTrue(engine.reloadOne())
+    repeat(40) { engine.update(0.05f) }
+    assertEquals(2, w.currentAmmo)
   }
 
   @Test
-  fun `cannot reload without reserve or with a full magazine`() {
+  fun `empty revolver does not reload by itself`() {
     val engine = newEngine()
-    val weapon = engine.currentWeapon
-    assertFalse("Full magazine", engine.manualReload())
-
-    weapon.currentAmmo = 0
-    weapon.reserveAmmo = 0
-    assertFalse("No reserve", engine.manualReload())
-    assertFalse(weapon.isReloading)
+    val w = engine.currentWeapon
+    w.currentAmmo = 0
+    engine.onTouchShoot(200f, engine.floorY - 50f)
+    repeat(40) { engine.update(0.05f) }
+    assertEquals(0, w.currentAmmo)
+    assertFalse(w.isReloading)
   }
 
   @Test
-  fun `ammo girl brings ammo and then has to cool down`() {
+  fun `headshot hurts more than a body shot`() {
     val engine = newEngine()
-    val weapon = engine.currentWeapon
-    weapon.reserveAmmo = 0
-    assertEquals(com.example.game.engine.RunnerState.IDLE, engine.runnerState)
+    val body = engine.addZombie(300f)
+    engine.onTouchShoot(body.x + 10f, engine.bodyY(body))
+    val bodyDamage = body.type.maxHp - body.hp
+    assertTrue(bodyDamage > 0f)
 
+    val engine2 = newEngine()
+    val head = engine2.addZombie(300f)
+    engine2.onTouchShoot(head.x + 10f, engine2.headY(head))
+    val headDamage = head.type.maxHp - head.hp
+    assertTrue("head=$headDamage body=$bodyDamage", headDamage > bodyDamage * 2f)
+  }
+
+  @Test
+  fun `shotgun does not reach past the middle of the map`() {
+    val engine = newEngine()
+    engine.selectWeapon(1)
+    assertEquals(WeaponType.SHOTGUN, engine.currentWeapon.type)
+    val far = engine.addZombie(engine.shotgunLimitX - 60f)
+    engine.onTouchShoot(far.x, engine.bodyY(far))
+    assertEquals(far.type.maxHp, far.hp, 0.001f)
+
+    val near = engine.addZombie(engine.shotgunLimitX + 30f)
+    engine.update(1f) // let the cooldown pass
+    engine.onTouchShoot(near.x, engine.bodyY(near))
+    assertTrue(near.hp < near.type.maxHp)
+  }
+
+  @Test
+  fun `grenade hurts every zombie in a wide area`() {
+    val engine = newEngine()
+    engine.selectWeapon(2)
+    // they keep walking (about 30 units) while the grenade is in the air, so aim a little ahead of them
+    val a = engine.addZombie(200f)
+    val b = engine.addZombie(200f + Balance.GRENADE_RADIUS * 0.5f)
+    val c = engine.addZombie(200f - Balance.GRENADE_RADIUS * 0.5f)
+    engine.onTouchShoot(230f, engine.floorY - 20f)
+    repeat(40) { engine.update(0.05f) }
+    assertTrue(a.dying && b.dying && c.dying)
+  }
+
+  @Test
+  fun `ammo girl only brings ammo for the weapon equipped when called`() {
+    val engine = newEngine()
+    val revolver = engine.weapons[0]
+    val shotgun = engine.weapons[1]
+    revolver.reserveAmmo = 0
+    shotgun.reserveAmmo = 0
+
+    engine.selectWeapon(1)
     assertTrue(engine.callAmmoRunner())
-    assertEquals(com.example.game.engine.RunnerState.GOING, engine.runnerState)
-    assertFalse("Already on her way", engine.callAmmoRunner())
-
-    // Nothing arrives right away
-    engine.update(0.5f)
-    assertEquals(0, weapon.reserveAmmo)
+    engine.selectWeapon(0) // switching afterwards must not change what she brings
 
     var guard = 0
-    while (engine.runnerState != com.example.game.engine.RunnerState.IDLE && guard++ < 2000) {
-      engine.update(0.05f)
-    }
-    assertEquals(com.example.game.engine.RunnerState.IDLE, engine.runnerState)
-    assertTrue("She should have delivered rounds", weapon.reserveAmmo > 0)
-    assertTrue("Reserve never exceeds the cap", weapon.reserveAmmo <= weapon.maxReserve)
-    assertTrue("Cooldown after a delivery", engine.runnerCooldown > 0f)
-    assertFalse(engine.callAmmoRunner())
-  }
-
-  @Test
-  fun `ammo girl refuses when the reserve is already full`() {
-    val engine = newEngine()
-    val weapon = engine.currentWeapon
-    weapon.reserveAmmo = weapon.maxReserve
-    assertFalse(engine.callAmmoRunner())
-    assertEquals(com.example.game.engine.RunnerState.IDLE, engine.runnerState)
-  }
-
-  @Test
-  fun `bullets leave from the barrel tip`() {
-    val engine = newEngine()
-    engine.onTouchShoot(900f, engine.gunAnchor.y)
-    assertTrue(engine.projectiles.isNotEmpty())
-    val p = engine.projectiles.first()
-    val tip = engine.muzzleFor(0f)
-    assertEquals(tip.x, p.x, 6f)
+    while (engine.runnerState != RunnerState.IDLE && guard++ < 1000) engine.update(0.05f)
+    assertEquals(RunnerState.IDLE, engine.runnerState)
+    assertEquals(shotgun.type.delivery, shotgun.reserveAmmo)
+    assertEquals(0, revolver.reserveAmmo)
+    assertFalse("she has to cool down before the next trip", engine.callAmmoRunner())
   }
 }

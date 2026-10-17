@@ -98,7 +98,7 @@ fun MainMenuScreen(
         ) {
             Column(modifier = Modifier.widthIn(max = 340.dp)) {
                 Text(
-                    text = "NOCHE EN EL BAYOU",
+                    text = "NOCHE EN LA CASA",
                     style = TextStyle(
                         fontFamily = FontFamily.Serif,
                         fontWeight = FontWeight.SemiBold,
@@ -192,7 +192,7 @@ fun MainMenuScreen(
                     Spacer(Modifier.height(4.dp))
                 }
                 Text(
-                    text = "Toca o arrastra sobre el pantano para disparar.",
+                    text = "Toca o arrastra por el pasillo para disparar.",
                     style = TextStyle(
                         fontFamily = FontFamily.Serif,
                         fontStyle = FontStyle.Italic,
@@ -227,12 +227,12 @@ fun MainMenuScreen(
                             )
                         )
                         listOf(
-                            "Toca o arrastra sobre el pantano. Mara apunta hacia tu dedo y dispara mientras lo mantengas.",
-                            "Ya no hay recarga automática: pulsa RECARGAR (abajo a la izquierda) cuando se acabe el cargador.",
-                            "La munición de reserva es limitada. Pulsa MUNICIÓN y Nina irá por una caja y te la traerá; tarda un rato, así que no esperes al último tiro.",
-                            "El botón de fuego lanza un molotov al grupo más grande de zombis.",
-                            "Cada baja da monedas. Gástalas en la armería: armas, mejoras, reparar la barricada y una torreta en el techo.",
-                            "Hay caimanes, perros, zombis blindados y brutos. Cada cinco oleadas llega un jefe."
+                            "Toca o arrastra por el pasillo: Mara apunta hacia tu dedo y dispara mientras lo mantengas.",
+                            "Solo hay tres armas. Revólver: 6 balas. Escopeta: 3 cartuchos, triple de daño, pero solo llega hasta la mitad del pasillo. Granada: daño completo en un área grande.",
+                            "Los disparos a la cabeza hacen mucho más daño.",
+                            "RECARGAR mete UNA sola bala por pulsación: toca varias veces para llenar el arma.",
+                            "La munición de reserva es limitada. Pulsa MUNICIÓN y Nina irá por una caja detrás de la puerta. Solo trae munición del arma que tengas equipada en ese momento.",
+                            "Si un zombi te alcanza, te han atrapado: la partida termina al instante."
                         ).forEach { line ->
                             Text(
                                 text = "—  $line",

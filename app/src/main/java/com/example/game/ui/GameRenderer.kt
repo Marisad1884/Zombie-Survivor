@@ -1,337 +1,262 @@
 package com.example.game.ui
 
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
-import com.example.game.engine.ActiveFireZone
 import com.example.game.engine.GameEngine
+import com.example.game.engine.GameStatus
+import com.example.game.engine.RunnerState
 import com.example.game.model.*
-import kotlin.math.*
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.sin
 
+/**
+ * Draws one frame of the game in world units (the canvas is scaled so the screen is always 340 units tall).
+ * `aimTarget` is the finger position in world units, or null when nothing is touching the screen.
+ */
 object GameRenderer {
 
-    fun render(
-        drawScope: DrawScope,
-        engine: GameEngine,
-        aimTarget: Offset?
-    ) {
-        val w = drawScope.size.width
-        val h = drawScope.size.height
+    private val WALK_ORDER = intArrayOf(0, 1, 2, 1)
 
-        engine.screenWidth = w
-        engine.screenHeight = h
-
+    fun render(drawScope: DrawScope, engine: GameEngine, aimTarget: Offset?) {
+        val widthPx = drawScope.size.width
+        val heightPx = drawScope.size.height
+        engine.setWorldSize(widthPx, heightPx)
+        val s = heightPx / Balance.WORLD_H
+        val w = engine.worldWidth
         val t = sceneTime()
-        val waterTop = engine.waterTop
 
         drawScope.withTransform({
-            translate(left = engine.shakeX, top = engine.shakeY)
+            scale(s, s, Offset.Zero)
+            translate(engine.shakeX, engine.shakeY)
         }) {
-            // 1. Night sky, moon, clouds, cypress trees and fireflies
-            drawNightSky(w, h, t)
-            drawFarShore(w, h, waterTop, t)
+            drawHallway(w, engine.floorY, engine.doorCx, t)
 
-            // 2. Swamp water: moonlight reflection, waves, lily pads and fog
-            drawSwampWaterLayer(w, h, waterTop, t)
-            drawWaterDetails(w, h, waterTop, t)
-
-            // 3. Blood stains on the water (flat decals, under every character)
-            drawDecals(engine.particles)
-
-            // 4. Cabin, porch, barricade and roof sentry turret
-            drawCabinAndPorch(engine.houseWidth, h, waterTop, engine)
-
-            // 5. Ammo girl (behind the heroine) and the heroine herself
-            drawAmmoRunner(engine, t)
-            drawHeroSoldier(engine, aimTarget)
-
-            // 6. Fire zones (Molotov pools)
-            engine.fireZones.forEach { fire ->
-                drawFireZoneFx(fire, t)
+            if (engine.status != GameStatus.GAME_OVER && engine.currentWeapon.type == WeaponType.SHOTGUN) {
+                drawShotgunLimit(engine)
             }
 
-            // 7. Zombies sorted by Y for perspective layering
-            val sortedZombies = engine.zombies.sortedBy { it.y }
-            sortedZombies.forEach { zombie ->
-                drawZombie(zombie, waterTop)
-            }
+            drawAmmoGirl(engine)
+            drawHeroine(engine)
 
-            // 8. Projectiles with tracers and glow
-            engine.projectiles.forEach { p ->
-                drawProjectileFx(p, t)
-            }
+            // far zombies first so near ones overlap them
+            for (z in engine.zombies.sortedBy { it.x }) drawZombie(z, engine.floorY)
 
-            // 9. Particles (explosions, blood, sparks, smoke, floating text...)
-            drawParticlesFx(engine.particles)
+            drawGrenades(engine)
+            drawTracers(engine)
+            drawParticles(engine)
+            drawMuzzleFlash(engine)
 
-            // 10. Foreground frame (reeds, hanging moss) for depth
-            drawForegroundFrame(w, h, t)
+            drawHallwayShade(w)
 
-            // 11. Light spilling from the muzzle + a cold night tint over the scene
-            drawMuzzleLight(engine.playerMuzzleOffset, engine.muzzleFlashTimer)
-            drawNightTint(w, h)
+            if (aimTarget != null && engine.status == GameStatus.PLAYING) drawCrosshair(aimTarget)
+            if (engine.status == GameStatus.GAME_OVER) drawCaughtOverlay(engine, w, t)
         }
-
-        // Vignette is drawn outside the shake transform so the screen edges stay put
-        drawScope.drawVignette(w, h)
     }
 
-    private fun DrawScope.drawHeroSoldier(engine: GameEngine, aimTarget: Offset?) {
-        val porchY = engine.porchY
-
-        // Heroine positioned right at the defense post behind the waist-high barricade
-        val bodyX = engine.houseWidth - 42f
-        val bodyY = porchY - 54f
-
-        val anchor = engine.gunAnchor
-        val target = aimTarget ?: Offset(engine.screenWidth * 0.75f, porchY - 20f)
-        val targetDx = (target.x - anchor.x).coerceAtLeast(3f)
-        val rawAngle = atan2(target.y - anchor.y, targetDx)
-        // Clamp from -48 deg (-0.85 rad) up to +86 deg (+1.50 rad) down so she can aim and shoot under the house
-        val aimAngle = rawAngle.coerceIn(-0.85f, 1.50f)
-
-        val weapon = engine.currentWeapon
-        val recoil = (engine.muzzleFlashTimer / 0.08f).coerceIn(0f, 1f) * 4f
-
-        // Body, head, hair, scarf... (see HeroRenderer.kt)
-        drawHeroine(bodyX, bodyY, porchY, sceneTime(), engine.muzzleFlashTimer, aimAngle, recoil)
-
-        // Arms and weapon, anchored to her shoulder (see WeaponRenderer.kt)
-        drawHeroWeapon(
-            bodyX = bodyX,
-            bodyY = bodyY,
-            anchor = anchor,
-            aimAngle = aimAngle,
-            type = weapon.type,
-            muzzleFlash = engine.muzzleFlashTimer,
-            reloading = weapon.isReloading,
-            reloadProgress = weapon.reloadProgress
-        )
-    }
-
-    private fun DrawScope.drawZombie(z: Zombie, waterTop: Float) {
-        val isHit = z.hitFlashTimer > 0f
-        val zX = z.x
-        val zY = z.y
-
-        val w = z.type.width
-        val h = z.type.height
-
-        // Deep water shadow beneath zombie
-        drawOval(
-            color = Color(0x44000000),
-            topLeft = Offset(zX - w * 0.55f, zY - 6f),
-            size = Size(w * 1.1f, 14f)
-        )
-
-        // Glowing aura so bosses / brutes stand out in the dark
-        if (z.type == ZombieType.COLOSSUS) {
-            drawEliteAura(zX, zY, w, Color(0xFFB3261E), sceneTime())
-        } else if (z.type == ZombieType.TANK) {
-            drawEliteAura(zX, zY, w, Color(0xFF8E9A4A), sceneTime())
+    // ------------------------------------------------------------------------------------ zombies
+    internal fun DrawScope.drawZombie(z: Zombie, floorY: Float) {
+        val palette = when (z.type) {
+            ZombieType.NORMAL -> Sprites.BASE_PALETTE
+            ZombieType.RUNNER -> Sprites.RUNNER_PALETTE
+            ZombieType.BRUTE -> Sprites.BRUTE_PALETTE
         }
+        val px = Balance.PX * z.type.scale
+        val frame = WALK_ORDER[((z.walkTimer.toInt() % 4) + 4) % 4]
+        val left = z.x - 12f * px
+        val top = floorY - 53f * px
 
-        // Specialized non-humanoid zombies
-        if (z.type == ZombieType.GATOR) {
-            drawGatorZombie(z, isHit)
-            drawZombieHpBar(z)
+        // shadow
+        drawRect(Color(0x44000000), Offset(z.x - 14f * z.type.scale, floorY - 1f), Size(34f * z.type.scale, 4f))
+
+        if (z.dying) {
+            val p = (z.deathTimer / GameEngine.DEATH_TIME).coerceIn(0f, 1f)
+            val fall = min(1f, p * (if (z.headshotDeath) 4f else 3f))
+            val alpha = 1f - max(0f, (p - 0.55f) / 0.45f)
+            withTransform({ rotate(-84f * fall, Offset(z.x - 6f * px, floorY)) }) {
+                drawPixelSprite(Sprites.ZOMBIE[1], palette, left, top, px, alpha = alpha)
+            }
             return
         }
-
-        if (z.type == ZombieType.ZOMBIE_DOG) {
-            drawZombieDog(z, isHit)
-            drawZombieHpBar(z)
-            return
+        val lean = if (z.type == ZombieType.RUNNER) 7f else 0f
+        withTransform({ rotate(lean, Offset(z.x, floorY)) }) {
+            drawPixelSprite(Sprites.ZOMBIE[frame], palette, left, top, px, flash = z.hitFlash > 0f)
         }
-
-        // Everything human-shaped lives in ZombieRenderer.kt
-        drawHumanoidZombie(z, isHit, sceneTime())
-        drawZombieHpBar(z)
     }
 
-    private fun DrawScope.drawGatorZombie(z: Zombie, isHit: Boolean) {
-        val color = if (isHit) Color.White else Color(0xFF2E4E37)
-        val darkScaleColor = if (isHit) Color.LightGray else Color(0xFF1B3024)
-        val eyeColor = Color(0xFFFFD600)
-        val zX = z.x
-        val zY = z.y
+    // ------------------------------------------------------------------------------------ heroine
+    private fun DrawScope.drawHeroine(engine: GameEngine) {
+        val type = engine.currentWeapon.type
+        val kick = (engine.muzzleFlashTimer / GameEngine.MUZZLE_FLASH_TIME).coerceIn(0f, 1f) * (if (type == WeaponType.SHOTGUN) 5f else 3f)
+        val lift = if (type == WeaponType.GRENADE && engine.throwTimer > 0f) 55f * (engine.throwTimer / 0.3f).coerceIn(0f, 1f) else 0f
+        drawHeroPose(engine.heroX, engine.floorY, engine.shoulder, type, engine.aimAngle, kick, lift)
+    }
 
-        // Water Wake Rings
-        drawOval(
-            color = Color(0x6680CBC4),
-            topLeft = Offset(zX - 38f, zY - 10f),
-            size = Size(80f, 18f),
-            style = Stroke(width = 2.2f)
-        )
-        drawOval(
-            color = Color(0x334DB6AC),
-            topLeft = Offset(zX - 44f, zY - 13f),
-            size = Size(92f, 24f),
-            style = Stroke(width = 1.5f)
-        )
+    /** The heroine standing at heroX with the given weapon raised. `kick` pushes the gun back, `lift` raises the arm (degrees). */
+    internal fun DrawScope.drawHeroPose(
+        heroX: Float,
+        floorY: Float,
+        shoulder: Offset,
+        type: WeaponType,
+        aimAngle: Float,
+        kick: Float = 0f,
+        lift: Float = 0f
+    ) {
+        val px = Balance.PX
+        val left = heroX - HeroGeometry.BODY_ANCHOR_COL * px
+        val top = floorY - HeroGeometry.GROUND_ROW * px
 
-        // Alligator Tail swaying
-        val tailWiggle = sin(z.walkAnimTimer * 2f) * 6f
-        val tailPath = Path().apply {
-            moveTo(zX + 16f, zY - 4f)
-            quadraticTo(zX + 30f, zY - 8f + tailWiggle, zX + 44f, zY - 4f + tailWiggle * 1.5f)
-            lineTo(zX + 16f, zY)
-            close()
+        drawRect(Color(0x44000000), Offset(heroX - 16f, floorY - 1f), Size(34f, 4f))
+        drawPixelSprite(Sprites.HERO_BODY, Sprites.BASE_PALETTE, left, top, px)
+
+        val arm = when (type) {
+            WeaponType.REVOLVER -> Sprites.ARM_REVOLVER
+            WeaponType.SHOTGUN -> Sprites.ARM_SHOTGUN
+            WeaponType.GRENADE -> Sprites.ARM_GRENADE
         }
-        drawPath(path = tailPath, color = color)
+        val (ax, ay) = HeroGeometry.armAnchor(type)
+        val degrees = -aimAngle * (180f / PI.toFloat()) - lift
+        withTransform({ rotate(degrees, shoulder) }) {
+            drawPixelSprite(arm, Sprites.BASE_PALETTE, shoulder.x - ax * px + kick, shoulder.y - ay * px, px)
+        }
+    }
 
-        // Main Alligator Body
-        drawOval(
-            color = color,
-            topLeft = Offset(zX - 28f, zY - 16f),
-            size = Size(54f, 20f)
-        )
+    private fun DrawScope.drawMuzzleFlash(engine: GameEngine) {
+        if (engine.muzzleFlashTimer <= 0f) return
+        val type = engine.currentWeapon.type
+        if (type == WeaponType.GRENADE) return
+        val k = (engine.muzzleFlashTimer / (GameEngine.MUZZLE_FLASH_TIME * if (type == WeaponType.SHOTGUN) 1.6f else 1f)).coerceIn(0f, 1f)
+        val m = engine.muzzle()
+        val u = (if (type == WeaponType.SHOTGUN) 2.6f else 1.7f) * (0.6f + 0.4f * k)
 
-        // Dorsal Scales / Spiky Ridges along back
-        for (i in 0..4) {
-            val scuteX = zX - 16f + i * 8f
+        drawGlow(m.x - 4f * u, m.y, 26f * u * 0.5f + 10f, Color(0xFFFFB347).copy(alpha = 0.55f * k))
+        drawRect(Color(0xFFFF9800), Offset(m.x - 8f * u, m.y - 1.2f * u), Size(9f * u, 2.4f * u))
+        drawRect(Color(0xFFFFD54F), Offset(m.x - 4f * u, m.y - 3.5f * u), Size(6f * u, 7f * u))
+        drawRect(Color(0xFFFF9800), Offset(m.x - 6f * u, m.y - 4.5f * u), Size(2f * u, 2f * u))
+        drawRect(Color(0xFFFF9800), Offset(m.x - 6f * u, m.y + 2.5f * u), Size(2f * u, 2f * u))
+        drawRect(Color(0xFFFFFFFF), Offset(m.x - 3f * u, m.y - 1.8f * u), Size(4f * u, 3.6f * u))
+    }
+
+    // ------------------------------------------------------------------------------------ ammo girl
+    private fun DrawScope.drawAmmoGirl(engine: GameEngine) {
+        if (engine.runnerHidden) return
+        val px = Balance.PX
+        val x = engine.runnerX
+        val floorY = engine.floorY
+        val moving = engine.runnerState == RunnerState.BRINGING || engine.runnerState == RunnerState.HOMING
+        val flip = engine.runnerFacing > 0
+
+        drawRect(Color(0x44000000), Offset(x - 14f, floorY - 1f), Size(30f, 4f))
+
+        // the crate she has just handed over, resting on the floor beside her
+        if (engine.runnerState == RunnerState.HANDING && engine.runnerDelivered) {
+            drawPixelSprite(Sprites.CRATE, Sprites.BASE_PALETTE, x - 38f, floorY - 12f * px, px)
+        }
+
+        val sprite = when {
+            engine.runnerCarrying -> Sprites.GIRL_CARRY
+            moving -> Sprites.GIRL[WALK_ORDER[((engine.runnerWalkPhase.toInt() % 4) + 4) % 4]]
+            else -> Sprites.GIRL[1]
+        }
+        drawGirlSprite(sprite, x, floorY, flip)
+
+        if (engine.runnerCarrying) {
+            val handingOut = engine.runnerState == RunnerState.HANDING && !engine.runnerDelivered
+            val dir = if (flip) 1f else -1f
+            val reach = if (handingOut) 12f else 0f
+            val cx = x + dir * (16f + reach)
+            val cy = floorY - 52f
+            drawPixelSprite(Sprites.CRATE, Sprites.BASE_PALETTE, cx - Sprites.CRATE.width * px / 2f, cy - 6f * px, px)
+            // her hands on the sides of the crate
+            drawRect(Color(0xFFF0C8AA), Offset(cx - 14f, cy + 2f), Size(5f, 5f))
+            drawRect(Color(0xFFF0C8AA), Offset(cx + 9f, cy + 2f), Size(5f, 5f))
+        }
+    }
+
+    /** Sprites face left; mirrored when she walks right. */
+    internal fun DrawScope.drawGirlSprite(sprite: PixelSprite, x: Float, floorY: Float, flip: Boolean) {
+        val px = Balance.PX
+        val anchorCol = 13
+        val left = if (flip) x - (sprite.width - anchorCol) * px else x - anchorCol * px
+        drawPixelSprite(sprite, Sprites.BASE_PALETTE, left, floorY - 53f * px, px, flipX = flip)
+    }
+
+    // ------------------------------------------------------------------------------------ effects
+    private fun DrawScope.drawShotgunLimit(engine: GameEngine) {
+        val x = engine.shotgunLimitX
+        var y = 62f
+        while (y < engine.floorY) {
+            drawRect(Color(0x55FFFFFF), Offset(x - 0.8f, y), Size(1.6f, 6f))
+            y += 12f
+        }
+        drawOutlinedText("ALCANCE ESCOPETA", x + 4f, 76f, 7f, Color(0xBBFFFFFF), alpha = 0.7f)
+    }
+
+    private fun DrawScope.drawGrenades(engine: GameEngine) {
+        for (g in engine.grenades) {
+            // blast radius marker on the floor where it will land
+            val pulse = 0.5f + 0.5f * sin(sceneTime() * 12f)
             drawRect(
-                color = darkScaleColor,
-                topLeft = Offset(scuteX, zY - 18f),
-                size = Size(4f, 4f)
+                Color(0xFFFF5252).copy(alpha = 0.18f + 0.12f * pulse),
+                Offset(g.x1 - Balance.GRENADE_RADIUS, engine.floorY - 1f),
+                Size(Balance.GRENADE_RADIUS * 2f, 5f)
             )
+            drawRect(Color(0x44000000), Offset(g.x - 6f, engine.floorY - 1f), Size(12f, 3f))
+            drawPixelSprite(Sprites.ICON_GRENADE, Sprites.BASE_PALETTE, g.x - 7f, g.y - 8f, 1f)
         }
-
-        // Massive Reptilian Snout & Jaws
-        val jawWiggle = if (z.isAttacking) sin(System.currentTimeMillis() * 0.015f).absoluteValue * 6f else 0f
-        // Upper Snout
-        drawRoundRect(
-            color = color,
-            topLeft = Offset(zX - 38f, zY - 14f - jawWiggle),
-            size = Size(26f, 8f),
-            cornerRadius = CornerRadius(3f, 3f)
-        )
-        // Lower Jaw
-        drawRoundRect(
-            color = darkScaleColor,
-            topLeft = Offset(zX - 36f, zY - 8f + jawWiggle),
-            size = Size(24f, 6f),
-            cornerRadius = CornerRadius(2f, 2f)
-        )
-
-        // Interlocking sharp conical teeth
-        for (i in 0..3) {
-            val toothX = zX - 34f + i * 5f
-            drawLine(color = Color(0xFFFFFDE7), start = Offset(toothX, zY - 6f - jawWiggle), end = Offset(toothX + 1f, zY - 9f), strokeWidth = 1.8f)
-            drawLine(color = Color(0xFFFFFDE7), start = Offset(toothX + 2.5f, zY - 8f + jawWiggle), end = Offset(toothX + 3.5f, zY - 5f), strokeWidth = 1.8f)
-        }
-
-        // Predatory slit eyes
-        drawCircle(color = eyeColor, center = Offset(zX - 10f, zY - 14f), radius = 3.8f)
-        drawLine(color = Color(0xFF1B0000), start = Offset(zX - 10f, zY - 17f), end = Offset(zX - 10f, zY - 11f), strokeWidth = 1.6f)
     }
 
-    private fun DrawScope.drawZombieDog(z: Zombie, isHit: Boolean) {
-        val color = if (isHit) Color.White else Color(0xFF4E342E)
-        val shadowColor = if (isHit) Color.LightGray else Color(0xFF2E1C14)
-        val zX = z.x
-        val zY = z.y
-
-        // Water Wake
-        drawOval(
-            color = Color(0x6680CBC4),
-            topLeft = Offset(zX - 26f, zY - 8f),
-            size = Size(54f, 15f),
-            style = Stroke(width = 2f)
-        )
-
-        val pawCycle = z.walkAnimTimer * 3.5f
-        val frontLegAnim = sin(pawCycle) * 10f
-        val backLegAnim = cos(pawCycle) * 10f
-
-        // 4 Running Legs
-        drawLine(color = color, start = Offset(zX - 12f, zY - 10f), end = Offset(zX - 16f - frontLegAnim, zY), strokeWidth = 3.5f, cap = StrokeCap.Round)
-        drawLine(color = shadowColor, start = Offset(zX - 8f, zY - 10f), end = Offset(zX - 12f + frontLegAnim, zY), strokeWidth = 3f, cap = StrokeCap.Round)
-        drawLine(color = color, start = Offset(zX + 10f, zY - 10f), end = Offset(zX + 6f - backLegAnim, zY), strokeWidth = 3.5f, cap = StrokeCap.Round)
-        drawLine(color = shadowColor, start = Offset(zX + 14f, zY - 10f), end = Offset(zX + 10f + backLegAnim, zY), strokeWidth = 3f, cap = StrokeCap.Round)
-
-        // Lean, Emaciated Hound Body
-        drawOval(
-            color = color,
-            topLeft = Offset(zX - 18f, zY - 20f),
-            size = Size(36f, 16f)
-        )
-
-        // Exposed skeletal rib slits
-        if (!isHit) {
-            drawLine(color = Color(0xFFCFD8DC), start = Offset(zX - 6f, zY - 18f), end = Offset(zX - 6f, zY - 12f), strokeWidth = 1.8f)
-            drawLine(color = Color(0xFFCFD8DC), start = Offset(zX - 1f, zY - 18f), end = Offset(zX - 1f, zY - 12f), strokeWidth = 1.8f)
-            drawLine(color = Color(0xFFCFD8DC), start = Offset(zX + 4f, zY - 18f), end = Offset(zX + 4f, zY - 12f), strokeWidth = 1.8f)
+    private fun DrawScope.drawTracers(engine: GameEngine) {
+        for (t in engine.tracers) {
+            val a = (t.life / 0.07f).coerceIn(0f, 1f)
+            drawLine(t.color.copy(alpha = a), Offset(t.x1, t.y1), Offset(t.x2, t.y2), strokeWidth = 1.3f)
         }
-
-        // Bristled raised fur ridge on spine
-        for (i in 0..4) {
-            val spikeX = zX - 10f + i * 5f
-            drawLine(color = shadowColor, start = Offset(spikeX, zY - 20f), end = Offset(spikeX - 2f, zY - 24f), strokeWidth = 2f)
-        }
-
-        // Snarling Hound Head & Jaws
-        val headX = zX - 20f
-        val headY = zY - 16f
-        drawCircle(color = color, center = Offset(headX, headY), radius = 8.5f)
-
-        // Snout
-        drawRoundRect(
-            color = shadowColor,
-            topLeft = Offset(headX - 12f, headY - 2f),
-            size = Size(14f, 6.5f),
-            cornerRadius = CornerRadius(2f, 2f)
-        )
-        // Dripping rabid foam / fangs
-        drawLine(color = Color(0xFFFFF9C4), start = Offset(headX - 10f, headY + 4f), end = Offset(headX - 9f, headY + 7.5f), strokeWidth = 1.8f)
-        drawLine(color = Color(0xFFFFF9C4), start = Offset(headX - 6f, headY + 4f), end = Offset(headX - 5f, headY + 7f), strokeWidth = 1.8f)
-        drawCircle(color = Color(0xCCEEEEEE), center = Offset(headX - 8f, headY + 7f), radius = 1.8f)
-
-        // Piercing demonic red eye
-        drawCircle(color = Color(0xFFFF1744), center = Offset(headX - 4f, headY - 3f), radius = 3f)
-        drawCircle(color = Color(0xFF1B0000), center = Offset(headX - 5f, headY - 3f), radius = 1.2f)
-
-        // Pointy wolf ears
-        val earPath = Path().apply {
-            moveTo(headX + 2f, headY - 7f)
-            lineTo(headX + 6f, headY - 14f)
-            lineTo(headX + 8f, headY - 6f)
-            close()
-        }
-        drawPath(path = earPath, color = shadowColor)
     }
 
-    private fun DrawScope.drawZombieHpBar(z: Zombie) {
-        if (z.currentHp < z.maxHp || z.type.isBoss || z.type == ZombieType.TANK || z.type == ZombieType.ARMORED) {
-            val barW = z.type.width * (if (z.type.isBoss) 1.5f else 1.1f)
-            val barH = if (z.type.isBoss) 8f else 5f
-            val barX = z.x - barW / 2f
-            val barY = z.y - z.type.height - 14f
-
-            drawRoundRect(
-                color = Color(0xDD000000),
-                topLeft = Offset(barX, barY),
-                size = Size(barW, barH),
-                cornerRadius = CornerRadius(2.5f, 2.5f)
-            )
-
-            val hpRatio = (z.currentHp / z.maxHp).coerceIn(0f, 1f)
-            val hpColor = when {
-                z.type.isBoss -> Color(0xFFFF1744)
-                hpRatio > 0.5f -> Color(0xFF4CAF50)
-                hpRatio > 0.25f -> Color(0xFFFFC107)
-                else -> Color(0xFFF44336)
+    private fun DrawScope.drawParticles(engine: GameEngine) {
+        for (p in engine.particles) {
+            val r = p.lifeRatio
+            when (p.kind) {
+                ParticleKind.BLOOD -> drawRect(p.color.copy(alpha = min(1f, r * 3f)), Offset(p.x, p.y), Size(p.size, p.size))
+                ParticleKind.SPARK -> drawRect(p.color, Offset(p.x, p.y), Size(p.size, p.size))
+                ParticleKind.SMOKE -> {
+                    val sz = p.size * (1f + (1f - r) * 1.4f)
+                    drawRect(p.color.copy(alpha = 0.45f * r), Offset(p.x - sz / 2f, p.y - sz / 2f), Size(sz, sz))
+                }
+                ParticleKind.FIRE -> {
+                    val sz = p.size * (0.4f + 0.6f * r)
+                    drawRect(p.color.copy(alpha = min(1f, r * 2f)), Offset(p.x - sz / 2f, p.y - sz / 2f), Size(sz, sz))
+                }
+                ParticleKind.CASING -> drawRect(p.color, Offset(p.x, p.y), Size(p.size * 0.6f, p.size))
+                ParticleKind.TEXT -> drawOutlinedText(p.text, p.x, p.y, p.size, p.color, alpha = min(1f, r * 2.2f))
             }
-            drawRoundRect(
-                color = hpColor,
-                topLeft = Offset(barX, barY),
-                size = Size(barW * hpRatio, barH),
-                cornerRadius = CornerRadius(2.5f, 2.5f)
-            )
         }
+    }
+
+    private fun DrawScope.drawCrosshair(at: Offset) {
+        val c = Color(0xFFFFFFFF)
+        drawRect(Color.Black, Offset(at.x - 9f, at.y - 1.6f), Size(6f, 3.2f))
+        drawRect(Color.Black, Offset(at.x + 3f, at.y - 1.6f), Size(6f, 3.2f))
+        drawRect(Color.Black, Offset(at.x - 1.6f, at.y - 9f), Size(3.2f, 6f))
+        drawRect(Color.Black, Offset(at.x - 1.6f, at.y + 3f), Size(3.2f, 6f))
+        drawRect(c, Offset(at.x - 8f, at.y - 0.8f), Size(5f, 1.6f))
+        drawRect(c, Offset(at.x + 3f, at.y - 0.8f), Size(5f, 1.6f))
+        drawRect(c, Offset(at.x - 0.8f, at.y - 8f), Size(1.6f, 5f))
+        drawRect(c, Offset(at.x - 0.8f, at.y + 3f), Size(1.6f, 5f))
+        drawRect(Color(0xFFE53935), Offset(at.x - 1f, at.y - 1f), Size(2f, 2f))
+    }
+
+    private fun DrawScope.drawCaughtOverlay(engine: GameEngine, w: Float, t: Float) {
+        val h = Balance.WORLD_H
+        drawRect(Color(0xFF8B0000).copy(alpha = 0.26f + 0.3f * engine.caughtFlash), size = Size(w, h))
+        val k = min(1f, engine.gameOverTimer * 4f)
+        val pulse = 1f + 0.035f * sin(t * 9f)
+        val size = 44f * (0.6f + 0.4f * k) * pulse
+        drawOutlinedText("¡TE HAN ATRAPADO!", w / 2f, h * 0.52f, size, Color(0xFFE50000), alpha = k)
     }
 }

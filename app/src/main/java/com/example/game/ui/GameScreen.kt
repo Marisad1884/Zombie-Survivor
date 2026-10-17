@@ -1,8 +1,6 @@
 package com.example.game.ui
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -10,13 +8,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
 import com.example.game.data.LeaderboardRepository
 import com.example.game.engine.GameEngine
 import com.example.game.engine.GameStatus
+import com.example.game.model.Balance
+import kotlinx.coroutines.delay
+
+/** How long the big red "TE HAN ATRAPADO" stays alone on screen before the results show up. */
+private const val CAUGHT_SCREEN_MILLIS = 2200L
 
 @Composable
 fun GameScreen(
@@ -27,15 +29,25 @@ fun GameScreen(
     modifier: Modifier = Modifier
 ) {
     var frameTick by remember { mutableLongStateOf(0L) }
+    // Finger position in world units (null when nothing is touching the screen)
     var aimTarget by remember { mutableStateOf<Offset?>(null) }
     var isTouching by remember { mutableStateOf(false) }
+    var screenHeightPx by remember { mutableFloatStateOf(1f) }
 
-    // Dialog flags
-    var showShopDialog by remember { mutableStateOf(false) }
     var showPauseDialog by remember { mutableStateOf(false) }
     var showLeaderboardDialog by remember { mutableStateOf(false) }
+    var showGameOverDialog by remember { mutableStateOf(false) }
+    var isNewRecord by remember { mutableStateOf(false) }
 
-    // 60 FPS Game Loop with withFrameNanos
+    // Screen pixels -> world units. The HUD bar at the top never shoots.
+    fun toWorld(p: Offset): Offset {
+        val s = screenHeightPx / Balance.WORLD_H
+        return Offset(p.x / s, p.y / s)
+    }
+
+    fun isOnHudBar(p: Offset): Boolean = p.y < screenHeightPx * Balance.BAR_FRACTION
+
+    // 60 FPS game loop
     var lastFrameTimeNanos by remember { mutableLongStateOf(0L) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -44,9 +56,10 @@ fun GameScreen(
                     val dt = ((frameTimeNanos - lastFrameTimeNanos) / 1_000_000_000f).coerceIn(0.001f, 0.05f)
                     engine.update(dt)
 
-                    // Continuous fire if touching/holding down
-                    if (isTouching && aimTarget != null && engine.status == GameStatus.PLAYING) {
-                        engine.onTouchShoot(aimTarget!!.x, aimTarget!!.y)
+                    // Holding a finger down keeps firing as fast as the weapon allows
+                    val target = aimTarget
+                    if (isTouching && target != null && engine.status == GameStatus.PLAYING) {
+                        engine.onTouchShoot(target.x, target.y)
                     }
                 }
                 lastFrameTimeNanos = frameTimeNanos
@@ -55,51 +68,69 @@ fun GameScreen(
         }
     }
 
+    // The results appear a moment after she is caught
+    LaunchedEffect(engine.status) {
+        if (engine.status == GameStatus.GAME_OVER) {
+            showGameOverDialog = false
+            // saved right away, so leaving early never loses the score
+            isNewRecord = repository.saveRunScore(
+                survivedSeconds = engine.survivedSeconds.toInt(),
+                waveReached = engine.wave,
+                zombiesKilled = engine.zombiesKilled,
+                coinsEarned = engine.score
+            )
+            delay(CAUGHT_SCREEN_MILLIS)
+            showGameOverDialog = true
+        } else {
+            showGameOverDialog = false
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .testTag("game_screen_root")
+            .onSizeChanged { screenHeightPx = it.height.toFloat().coerceAtLeast(1f) }
             .pointerInput(Unit) {
                 detectTapGestures(
                     onPress = { offset ->
-                        val isInsideWeaponHUD = offset.x < 150f && offset.y < 300f
-                        if (!isInsideWeaponHUD) {
+                        if (!isOnHudBar(offset)) {
                             isTouching = true
-                            aimTarget = offset
-                            engine.onTouchShoot(offset.x, offset.y)
+                            aimTarget = toWorld(offset)
+                            engine.onTouchShoot(aimTarget!!.x, aimTarget!!.y)
                         }
                         tryAwaitRelease()
                         isTouching = false
+                        aimTarget = null
                     }
                 )
             }
             .pointerInput(Unit) {
                 detectDragGestures(
                     onDragStart = { offset ->
-                        val isInsideWeaponHUD = offset.x < 150f && offset.y < 300f
-                        if (!isInsideWeaponHUD) {
+                        if (!isOnHudBar(offset)) {
                             isTouching = true
-                            aimTarget = offset
-                            engine.onTouchShoot(offset.x, offset.y)
+                            aimTarget = toWorld(offset)
+                            engine.onTouchShoot(aimTarget!!.x, aimTarget!!.y)
                         }
                     },
                     onDragEnd = {
                         isTouching = false
+                        aimTarget = null
                     },
                     onDragCancel = {
                         isTouching = false
+                        aimTarget = null
                     },
                     onDrag = { change, _ ->
-                        val isInsideWeaponHUD = change.position.x < 150f && change.position.y < 300f
-                        if (!isInsideWeaponHUD) {
-                            aimTarget = change.position
-                            engine.onTouchShoot(change.position.x, change.position.y)
+                        if (!isOnHudBar(change.position)) {
+                            aimTarget = toWorld(change.position)
+                            engine.onTouchShoot(aimTarget!!.x, aimTarget!!.y)
                         }
                     }
                 )
             }
     ) {
-        // Compose Canvas Game Renderer
         Canvas(modifier = Modifier.fillMaxSize().testTag("game_canvas")) {
             @Suppress("UNUSED_VARIABLE")
             val tick = frameTick
@@ -111,50 +142,19 @@ fun GameScreen(
             )
         }
 
-        // Red Screen Damage Flash when base takes hit
-        if (engine.houseDamageFlash > 0f) {
-            val flashAlpha = (engine.houseDamageFlash * 2f).coerceIn(0f, 0.7f)
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .border(8.dp, Color(0xFFFF1744).copy(alpha = flashAlpha))
-                    .background(Color(0xFFB71C1C).copy(alpha = flashAlpha * 0.25f))
-            )
-        }
-
-        // HUD Overlay (Reads Compose State directly and updates in real time)
         GameHUD(
             engine = engine,
             onPauseClick = {
                 engine.pauseGame()
                 showPauseDialog = true
-            },
-            onShopClick = {
-                engine.openShop()
-                showShopDialog = true
             }
         )
-
-        // Dialogs
-        if (showShopDialog) {
-            ShopDialog(
-                engine = engine,
-                onDismiss = {
-                    showShopDialog = false
-                }
-            )
-        }
 
         if (showPauseDialog) {
             PauseDialog(
                 onResume = {
                     showPauseDialog = false
                     engine.resumeGame()
-                },
-                onOpenShop = {
-                    showPauseDialog = false
-                    engine.openShop()
-                    showShopDialog = true
                 },
                 onQuickRestart = {
                     showPauseDialog = false
@@ -179,22 +179,13 @@ fun GameScreen(
             )
         }
 
-        if (engine.status == GameStatus.GAME_OVER) {
-            val survivedSecs = engine.survivedSeconds.toInt()
-            val isNewRecord = remember(engine.status) {
-                repository.saveRunScore(
-                    survivedSeconds = survivedSecs,
-                    waveReached = engine.wave,
-                    zombiesKilled = engine.zombiesKilled,
-                    coinsEarned = engine.coins
-                )
-            }
-
+        if (engine.status == GameStatus.GAME_OVER && showGameOverDialog) {
             GameOverDialog(
-                survivedSeconds = survivedSecs,
+                survivedSeconds = engine.survivedSeconds.toInt(),
                 waveReached = engine.wave,
                 zombiesKilled = engine.zombiesKilled,
-                coinsEarned = engine.coins,
+                score = engine.score,
+                headshots = engine.headshots,
                 isNewRecord = isNewRecord,
                 onQuickRestart = {
                     engine.startNewRun()

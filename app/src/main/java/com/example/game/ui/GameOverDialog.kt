@@ -16,6 +16,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -27,7 +28,8 @@ fun GameOverDialog(
     survivedSeconds: Int,
     waveReached: Int,
     zombiesKilled: Int,
-    coinsEarned: Int,
+    score: Int,
+    headshots: Int,
     isNewRecord: Boolean,
     onQuickRestart: () -> Unit,
     onOpenLeaderboard: () -> Unit,
@@ -75,15 +77,17 @@ fun GameOverDialog(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
-                    text = "¡FIN DE LA PARTIDA!",
-                    fontSize = 20.sp,
+                    text = "¡TE HAN ATRAPADO!",
+                    fontSize = 30.sp,
+                    fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Black,
-                    color = Color(0xFFFF5252),
-                    textAlign = TextAlign.Center
+                    color = Color(0xFFE50000),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.testTag("game_over_title")
                 )
 
                 Text(
-                    text = "Los zombis del pantano han derribado tus defensas.",
+                    text = "Un zombi llegó hasta ti. Aquí no hay segunda oportunidad.",
                     fontSize = 12.sp,
                     color = Color(0xFFB0BEC5),
                     textAlign = TextAlign.Center
@@ -122,7 +126,7 @@ fun GameOverDialog(
                     StatCard(
                         modifier = Modifier.weight(1f),
                         icon = Icons.Default.Warning,
-                        label = "OLEADA FINAL",
+                        label = "OLEADA",
                         value = "Oleada $waveReached",
                         iconTint = Color(0xFFFFB300)
                     )
@@ -143,9 +147,9 @@ fun GameOverDialog(
                     )
                     StatCard(
                         modifier = Modifier.weight(1f),
-                        icon = Icons.Default.MonetizationOn,
-                        label = "MONEDAS",
-                        value = "$$coinsEarned",
+                        icon = Icons.Default.Star,
+                        label = "PUNTOS  ·  CABEZAS $headshots",
+                        value = "$score",
                         iconTint = Color(0xFFFFD700)
                     )
                 }

@@ -1,9 +1,9 @@
 package com.example
 
 import com.example.game.model.Balance
-import com.example.game.model.DefenseUpgrades
 import com.example.game.model.Weapon
 import com.example.game.model.WeaponType
+import com.example.game.model.Zombie
 import com.example.game.model.ZombieType
 import org.junit.Assert.*
 import org.junit.Test
@@ -11,67 +11,58 @@ import org.junit.Test
 class ExampleUnitTest {
 
   @Test
-  fun testWeaponUpgrades() {
-    val shotgun = Weapon(WeaponType.SHOTGUN, initialUnlocked = true)
-    assertEquals(1, shotgun.level)
-    assertEquals(shotgun.type.baseMagazineSize, shotgun.maxAmmo)
-
-    shotgun.level = 2
-    assertTrue(shotgun.damage > shotgun.type.baseDamage)
-    assertTrue(shotgun.maxAmmo > shotgun.type.baseMagazineSize)
-    assertEquals(10, shotgun.maxLevel)
+  fun onlyThreeWeapons() {
+    assertEquals(listOf("REVOLVER", "SHOTGUN", "GRENADE"), WeaponType.values().map { it.name })
   }
 
   @Test
-  fun testDefenseUpgrades() {
-    val defense = DefenseUpgrades()
-    assertEquals(100f, defense.maxHouseHp)
-
-    defense.maxHouseHpLevel = 2
-    assertEquals(140f, defense.maxHouseHp)
-
-    assertEquals(0f, defense.spikeDamagePerSec)
-    defense.barbedWireLevel = 1
-    assertTrue(defense.spikeDamagePerSec > 0f)
-    assertTrue(defense.spikeSlowFactor < 1.0f)
-
-    defense.turretLevel = 1
-    assertTrue(defense.turretDamage > 0f)
+  fun magazineSizes() {
+    assertEquals(6, WeaponType.REVOLVER.magazine)
+    assertEquals(3, WeaponType.SHOTGUN.magazine)
   }
 
   @Test
-  fun testZombieTypes() {
-    assertTrue(ZombieType.TANK.maxHp > ZombieType.WALKER.maxHp)
-    assertTrue(ZombieType.RUNNER.speed > ZombieType.WALKER.speed)
-    assertTrue(ZombieType.COLOSSUS.maxHp > ZombieType.TANK.maxHp)
-    assertTrue(ZombieType.COLOSSUS.isBoss)
-    assertTrue(ZombieType.ARMORED.armorDamageReduction > 0f)
-    assertTrue(ZombieType.ZOMBIE_DOG.speed > ZombieType.WALKER.speed)
+  fun shotgunDoesTripleDamagePerShell() {
+    assertEquals(Balance.REVOLVER_DAMAGE * 3f, Balance.SHOTGUN_DAMAGE_PER_SHELL, 0.001f)
+    assertEquals(0.5f, Balance.SHOTGUN_RANGE_FRACTION, 0.0001f)
   }
 
   @Test
-  fun testReserveAmmoIsLimited() {
-    val rifle = Weapon(WeaponType.RIFLE, initialUnlocked = true)
-    assertEquals(rifle.maxAmmo * Balance.START_RESERVE_MAGS, rifle.reserveAmmo)
-    assertEquals(rifle.maxAmmo * Balance.MAX_RESERVE_MAGS, rifle.maxReserve)
+  fun reloadLoadsOneRoundAtATime() {
+    val w = Weapon(WeaponType.REVOLVER)
+    w.currentAmmo = 0
+    val reserve = w.reserveAmmo
+    assertTrue(w.loadOne())
+    assertEquals(1, w.currentAmmo)
+    assertEquals(reserve - 1, w.reserveAmmo)
+  }
 
-    val added = rifle.addReserve(10_000)
-    assertEquals(rifle.maxReserve, rifle.reserveAmmo)
+  @Test
+  fun cannotOverfillOrLoadWithoutReserve() {
+    val full = Weapon(WeaponType.SHOTGUN)
+    assertFalse(full.loadOne())
+
+    val empty = Weapon(WeaponType.SHOTGUN)
+    empty.currentAmmo = 0
+    empty.reserveAmmo = 0
+    assertFalse(empty.loadOne())
+  }
+
+  @Test
+  fun reserveIsCapped() {
+    val w = Weapon(WeaponType.GRENADE)
+    val added = w.addReserve(1000)
+    assertEquals(w.type.maxReserve, w.reserveAmmo)
     assertTrue(added > 0)
-    assertEquals(0, rifle.addReserve(5))
-
-    rifle.currentAmmo = 0
-    rifle.reserveAmmo = rifle.maxAmmo / 2
-    val moved = rifle.finishReload()
-    assertEquals(rifle.maxAmmo / 2, moved)
-    assertEquals(0, rifle.reserveAmmo)
+    assertEquals(0, w.addReserve(1))
   }
 
   @Test
-  fun testEconomyIsTighter() {
-    assertTrue(ZombieType.WALKER.coinReward <= 1)
-    assertTrue(ZombieType.TANK.coinReward <= 8)
-    assertTrue(WeaponType.SHOTGUN.unlockCost >= 100)
-    assertTrue(Balance.WAVE_BONUS_BASE + Balance.WAVE_BONUS_PER_WAVE < 15)
+  fun zombiesComeInDifferentSizes() {
+    assertTrue(ZombieType.BRUTE.maxHp > ZombieType.NORMAL.maxHp)
+    assertTrue(ZombieType.RUNNER.speed > ZombieType.NORMAL.speed)
+    val z = Zombie(1, ZombieType.NORMAL, 10f, 1f)
+    assertTrue(z.isAlive)
+    assertTrue(z.frontX > z.x)
   }
 }

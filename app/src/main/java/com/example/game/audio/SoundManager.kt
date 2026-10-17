@@ -118,8 +118,8 @@ class SoundManager(private val context: Context) {
     private fun generateWeaponPcm(type: WeaponType): ShortArray {
         val random = Random()
         return when (type) {
-            WeaponType.PISTOL -> {
-                // Sharp 9mm handgun pop with quick crack (80ms)
+            WeaponType.REVOLVER -> {
+                // Sharp revolver crack (90ms)
                 val count = (sampleRate * 0.08).toInt()
                 val buffer = ShortArray(count)
                 for (i in 0 until count) {
@@ -129,22 +129,6 @@ class SoundManager(private val context: Context) {
                     val tone = sin(2.0 * PI * 220.0 * t)
                     val sample = (0.75 * noise + 0.25 * tone) * env
                     buffer[i] = (sample * 28000).toInt().coerceIn(-32767, 32767).toShort()
-                }
-                buffer
-            }
-
-            WeaponType.CROSSBOW -> {
-                // Mechanical bowstring release "twang/thwip" (100ms) - wooden pitch bend
-                val count = (sampleRate * 0.10).toInt()
-                val buffer = ShortArray(count)
-                for (i in 0 until count) {
-                    val t = i.toDouble() / sampleRate
-                    val env = exp(-t * 30.0)
-                    val freq = 380.0 - (t * 1800.0).coerceAtMost(220.0)
-                    val stringTone = sin(2.0 * PI * freq * t)
-                    val rustle = (random.nextDouble() * 2.0 - 1.0) * exp(-t * 90.0)
-                    val sample = (0.7 * stringTone + 0.3 * rustle) * env
-                    buffer[i] = (sample * 26000).toInt().coerceIn(-32767, 32767).toShort()
                 }
                 buffer
             }
@@ -164,84 +148,21 @@ class SoundManager(private val context: Context) {
                 buffer
             }
 
-            WeaponType.RIFLE -> {
-                // Snappy military 5.56 rifle crack (65ms) - sharp supersonic impulse
-                val count = (sampleRate * 0.065).toInt()
+            WeaponType.GRENADE -> {
+                // Pin pull and underhand throw: short whoosh (160ms)
+                val count = (sampleRate * 0.16).toInt()
                 val buffer = ShortArray(count)
+                var last = 0.0
                 for (i in 0 until count) {
                     val t = i.toDouble() / sampleRate
-                    val env = exp(-t * 60.0)
-                    val crack = sin(2.0 * PI * 850.0 * t) * exp(-t * 90.0)
-                    val noise = (random.nextDouble() * 2.0 - 1.0)
-                    val sample = (0.6 * noise + 0.4 * crack) * env
-                    buffer[i] = (sample * 29000).toInt().coerceIn(-32767, 32767).toShort()
+                    val env = sin(PI * (i.toDouble() / count))
+                    last = 0.8 * last + 0.2 * (random.nextDouble() * 2.0 - 1.0)
+                    val click = if (i < 120) (random.nextDouble() * 2.0 - 1.0) * 0.8 else 0.0
+                    buffer[i] = ((last * env * 0.6 + click) * 20000).toInt().coerceIn(-32767, 32767).toShort()
                 }
                 buffer
             }
 
-            WeaponType.FLAMETHROWER -> {
-                // Pressurized napalm flame jet whoosh and hiss (140ms)
-                val count = (sampleRate * 0.14).toInt()
-                val buffer = ShortArray(count)
-                var lastNoise = 0.0
-                for (i in 0 until count) {
-                    val t = i.toDouble() / sampleRate
-                    val env = sin(PI * (i.toDouble() / count)) // smooth bell curve
-                    val rawNoise = (random.nextDouble() * 2.0 - 1.0)
-                    // Low-pass filter for deep whoosh
-                    lastNoise = 0.7 * lastNoise + 0.3 * rawNoise
-                    val rumble = sin(2.0 * PI * 110.0 * t) * 0.3
-                    val sample = (lastNoise + rumble) * env
-                    buffer[i] = (sample * 27000).toInt().coerceIn(-32767, 32767).toShort()
-                }
-                buffer
-            }
-
-            WeaponType.LAUNCHER -> {
-                // Heavy pneumatic launch tube "THUMP" with propellant pressure (180ms)
-                val count = (sampleRate * 0.18).toInt()
-                val buffer = ShortArray(count)
-                for (i in 0 until count) {
-                    val t = i.toDouble() / sampleRate
-                    val env = exp(-t * 26.0)
-                    val thump = sin(2.0 * PI * 85.0 * t) * exp(-t * 18.0)
-                    val rush = (random.nextDouble() * 2.0 - 1.0) * exp(-t * 35.0)
-                    val sample = (0.6 * thump + 0.4 * rush) * env
-                    buffer[i] = (sample * 31000).toInt().coerceIn(-32767, 32767).toShort()
-                }
-                buffer
-            }
-
-            WeaponType.MINIGUN -> {
-                // Rapid rotary Gatling motor whine and sharp cyclic bullet punch (40ms)
-                val count = (sampleRate * 0.04).toInt()
-                val buffer = ShortArray(count)
-                for (i in 0 until count) {
-                    val t = i.toDouble() / sampleRate
-                    val env = exp(-t * 85.0)
-                    val motor = sin(2.0 * PI * 1200.0 * t) * 0.3
-                    val metallic = (random.nextDouble() * 2.0 - 1.0) * 0.7
-                    val sample = (motor + metallic) * env
-                    buffer[i] = (sample * 29000).toInt().coerceIn(-32767, 32767).toShort()
-                }
-                buffer
-            }
-
-            WeaponType.SNIPER -> {
-                // High-caliber .50 BMG rifle thunderclap: supersonic whip + deep bass echo (300ms)
-                val count = (sampleRate * 0.30).toInt()
-                val buffer = ShortArray(count)
-                for (i in 0 until count) {
-                    val t = i.toDouble() / sampleRate
-                    val env = exp(-t * 14.0)
-                    val crack = (random.nextDouble() * 2.0 - 1.0) * exp(-t * 80.0)
-                    val thunder = sin(2.0 * PI * 48.0 * t) * exp(-t * 10.0)
-                    val sub = sin(2.0 * PI * 95.0 * t) * exp(-t * 16.0)
-                    val sample = (0.45 * crack + 0.35 * thunder + 0.20 * sub) * env
-                    buffer[i] = (sample * 32000).toInt().coerceIn(-32767, 32767).toShort()
-                }
-                buffer
-            }
         }
     }
 
@@ -312,27 +233,17 @@ class SoundManager(private val context: Context) {
             } else {
                 // Fallback to ToneGenerator
                 when (weaponType) {
-                    WeaponType.PISTOL -> toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 35)
-                    WeaponType.CROSSBOW -> toneGenerator?.startTone(ToneGenerator.TONE_PROP_PROMPT, 30)
+                    WeaponType.REVOLVER -> toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 35)
                     WeaponType.SHOTGUN -> toneGenerator?.startTone(ToneGenerator.TONE_SUP_RINGTONE, 80)
-                    WeaponType.RIFLE -> toneGenerator?.startTone(ToneGenerator.TONE_PROP_ACK, 25)
-                    WeaponType.FLAMETHROWER -> toneGenerator?.startTone(ToneGenerator.TONE_CDMA_PIP, 20)
-                    WeaponType.LAUNCHER -> toneGenerator?.startTone(ToneGenerator.TONE_CDMA_ABBR_ALERT, 120)
-                    WeaponType.MINIGUN -> toneGenerator?.startTone(ToneGenerator.TONE_PROP_ACK, 20)
-                    WeaponType.SNIPER -> toneGenerator?.startTone(ToneGenerator.TONE_CDMA_HIGH_L, 140)
+                    WeaponType.GRENADE -> toneGenerator?.startTone(ToneGenerator.TONE_PROP_PROMPT, 40)
                 }
             }
 
             // Tailored haptic feedback for each weapon's punch
             when (weaponType) {
-                WeaponType.PISTOL -> vibrate(16)
-                WeaponType.CROSSBOW -> vibrate(12)
-                WeaponType.SHOTGUN -> vibrate(50)
-                WeaponType.RIFLE -> vibrate(14)
-                WeaponType.FLAMETHROWER -> vibrate(8)
-                WeaponType.LAUNCHER -> vibrate(65)
-                WeaponType.MINIGUN -> vibrate(9)
-                WeaponType.SNIPER -> vibrate(75)
+                WeaponType.REVOLVER -> vibrate(18)
+                WeaponType.SHOTGUN -> vibrate(55)
+                WeaponType.GRENADE -> vibrate(25)
             }
         } catch (_: Exception) {}
     }
