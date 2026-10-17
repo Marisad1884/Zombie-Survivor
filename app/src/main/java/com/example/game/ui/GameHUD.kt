@@ -108,15 +108,23 @@ fun GameHUD(
                 }
             }
 
-            // spare rounds of the equipped weapon
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                PixelIcon(roundSprite(weapon.type), Modifier.size(width = 14.dp, height = 28.dp))
+            // spare rounds of the equipped weapon (the grenade has none: you hold one, or you wait for Nina)
+            if (weapon.type != WeaponType.GRENADE) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    PixelIcon(roundSprite(weapon.type), Modifier.size(width = 14.dp, height = 28.dp))
+                    Text(
+                        text = "x${weapon.reserveAmmo}",
+                        style = outlinedWhite.copy(
+                            fontSize = 20.sp,
+                            color = if (weapon.reserveAmmo == 0) Color(0xFFFF5252) else Color.White
+                        ),
+                        modifier = Modifier.testTag("hud_reserve")
+                    )
+                }
+            } else if (weapon.currentAmmo == 0) {
                 Text(
-                    text = "x${weapon.reserveAmmo}",
-                    style = outlinedWhite.copy(
-                        fontSize = 20.sp,
-                        color = if (weapon.reserveAmmo == 0) Color(0xFFFF5252) else Color.White
-                    ),
+                    text = "¡SIN GRANADA!",
+                    style = outlinedWhite.copy(fontSize = 14.sp, color = Color(0xFFFF5252)),
                     modifier = Modifier.testTag("hud_reserve")
                 )
             }
@@ -132,12 +140,7 @@ fun GameHUD(
                 val slots = weapon.magazine
                 for (i in 0 until slots) {
                     val loaded = i < weapon.currentAmmo
-                    val loading = weapon.isReloading && i == weapon.currentAmmo
-                    val a = when {
-                        loaded -> 1f
-                        loading -> 0.25f + 0.6f * weapon.reloadProgress
-                        else -> 0.2f
-                    }
+                    val a = if (loaded) 1f else 0.2f
                     PixelIcon(
                         roundSprite(weapon.type),
                         Modifier.size(
@@ -174,7 +177,7 @@ fun GameHUD(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             val magFull = weapon.currentAmmo >= weapon.magazine
-            val canReload = playing && !weapon.isReloading && !magFull && weapon.reserveAmmo > 0
+            val canReload = playing && !magFull && weapon.reserveAmmo > 0
             val urgent = canReload && weapon.currentAmmo == 0
 
             SquareButton(
@@ -182,25 +185,25 @@ fun GameHUD(
                 label = "RECARGAR",
                 enabled = canReload,
                 highlight = urgent,
-                fill = if (weapon.isReloading) weapon.reloadProgress else 0f,
+                fill = 0f,
                 onClick = { engine.reloadOne() }
             ) {
                 PixelIcon(
                     roundSprite(weapon.type),
                     Modifier.size(width = 18.dp, height = 30.dp),
-                    alpha = if (canReload || weapon.isReloading) 1f else 0.4f
+                    alpha = if (canReload) 1f else 0.4f
                 )
             }
 
             val busy = engine.runnerState != RunnerState.IDLE
             val cooling = !busy && engine.runnerCooldown > 0f
-            val full = weapon.reserveSpace <= 0
+            val full = weapon.refillSpace <= 0
             val ready = playing && !busy && !cooling && !full
             SquareButton(
                 tag = "hud_ammo_runner_button",
                 label = "MUNICIÓN",
                 enabled = ready,
-                highlight = ready && weapon.reserveAmmo <= weapon.type.delivery / 3,
+                highlight = ready && (if (weapon.type == WeaponType.GRENADE) weapon.currentAmmo == 0 else weapon.reserveAmmo <= weapon.type.delivery / 3),
                 fill = if (busy) engine.runnerTripProgress else 0f,
                 onClick = { engine.callAmmoRunner() }
             ) {

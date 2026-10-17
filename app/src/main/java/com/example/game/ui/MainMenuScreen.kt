@@ -228,9 +228,9 @@ fun MainMenuScreen(
                         )
                         listOf(
                             "Toca o arrastra por el pasillo: Mara apunta hacia tu dedo y dispara mientras lo mantengas.",
-                            "Solo hay tres armas. Revólver: 6 balas. Escopeta: 3 cartuchos, triple de daño, pero solo llega hasta la mitad del pasillo. Granada: daño completo en un área grande.",
+                            "Solo hay tres armas. Revólver: 6 balas. Escopeta: 3 cartuchos, triple de daño, pero solo llega hasta la mitad del pasillo. Granada: limpia a todos los zombis de la pantalla, pero solo llevas UNA hasta que Nina te traiga otra.",
                             "Los disparos a la cabeza hacen mucho más daño.",
-                            "RECARGAR mete UNA sola bala por pulsación: toca varias veces para llenar el arma.",
+                            "RECARGAR es al instante, pero mete UNA sola bala por pulsación: toca varias veces para llenar el arma.",
                             "La munición de reserva es limitada. Pulsa MUNICIÓN y Nina irá por una caja detrás de la puerta. Solo trae munición del arma que tengas equipada en ese momento.",
                             "Si un zombi te alcanza, te han atrapado: la partida termina al instante."
                         ).forEach { line ->
