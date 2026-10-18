@@ -41,11 +41,13 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -56,6 +58,8 @@ private val BONE_DIM = Color(0xFFB8B09A)
 private val LAMP = Color(0xFFC9A55B)
 private val INK = Color(0xFF2B1D12)
 
+private const val PRIVACY_POLICY_URL = "https://marisad1884.github.io/Zombie-Survivor/privacy/"
+
 @Composable
 fun MainMenuScreen(
     repository: LeaderboardRepository,
@@ -64,6 +68,7 @@ fun MainMenuScreen(
     modifier: Modifier = Modifier
 ) {
     var showHowToPlay by remember { mutableStateOf(false) }
+    val uriHandler = LocalUriHandler.current
     val bestSeconds = remember { repository.getBestSurvivalTimeSeconds() }
     val formattedBest = remember(bestSeconds) {
         "%02d:%02d".format(bestSeconds / 60, bestSeconds % 60)
@@ -197,6 +202,26 @@ fun MainMenuScreen(
                         fontFamily = FontFamily.Serif,
                         fontStyle = FontStyle.Italic,
                         fontSize = 11.sp,
+                        color = BONE_DIM.copy(alpha = 0.75f)
+                    )
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "Política de privacidad",
+                    modifier = Modifier
+                        .testTag("menu_privacy_link")
+                        .clickable {
+                            try {
+                                uriHandler.openUri(PRIVACY_POLICY_URL)
+                            } catch (_: Exception) {
+                                // no browser available: nothing to do
+                            }
+                        }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    style = TextStyle(
+                        fontFamily = FontFamily.Serif,
+                        fontSize = 11.sp,
+                        textDecoration = TextDecoration.Underline,
                         color = BONE_DIM.copy(alpha = 0.75f)
                     )
                 )
